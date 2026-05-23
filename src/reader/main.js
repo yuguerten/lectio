@@ -20,6 +20,7 @@ const state = {
   filters: { color: "all", type: "all" },
   searchQuery: "",
   activeId: null,
+  commentOpenId: null,
   selectionAnchor: null
 };
 
@@ -112,6 +113,7 @@ function renderWorkspace() {
         </aside>
       </div>
       <div id="selection-popover" class="popover" role="toolbar" aria-label="Selection actions"></div>
+      <div id="comment-popover" class="comment-popover" aria-live="polite"></div>
     </main>
   `;
 
@@ -147,6 +149,8 @@ function renderWorkspace() {
   });
   document.addEventListener("keydown", focusSearchShortcut);
   document.querySelector("#export-md").addEventListener("click", exportMarkdown);
+  document.querySelector("#selection-popover").addEventListener("mousedown", (event) => event.preventDefault());
+  document.addEventListener("mousedown", closeFloatingCommentOnOutsideClick);
 
   renderArticleAndMargin();
   bindSelectionPopover();
@@ -229,6 +233,7 @@ function noteCardTemplate(annotation) {
       </div>
       <blockquote class="quote">${escapeHtml(shortQuote(annotation.anchor.exact))}</blockquote>
       <textarea class="note-editor" data-action="edit" placeholder="Write a note...">${escapeHtml(annotation.note.trim())}</textarea>
+      ${annotation.handwriting ? `<img class="ink-preview" src="${escapeAttribute(annotation.handwriting)}" alt="Handwritten note preview" />` : ""}
       <div class="note-actions">
         <button type="button" data-action="jump" title="Jump to highlight">${pencilIcon()}</button>
         <button type="button" data-action="copy" title="Copy note">${copyIcon()}</button>
@@ -284,14 +289,16 @@ async function addAnnotation(color, withNote) {
   });
   if (withNote) annotation.type = "note";
 
-  await saveAnnotations(upsertAnnotation(state.annotations, annotation));
-  state.activeId = annotation.id;
+  const nextAnnotations = upsertAnnotation(state.annotations, annotation);
+  const stored = findSameAnchor(nextAnnotations, annotation.anchor) || annotation;
+  await saveAnnotations(nextAnnotations);
+  state.activeId = stored.id;
   window.getSelection()?.removeAllRanges();
   document.querySelector("#selection-popover").classList.remove("is-visible");
   renderArticleAndMargin();
 
   if (withNote) {
-    document.querySelector(`[data-note-id="${annotation.id}"] textarea`)?.focus();
+    openComment(stored.id, document.querySelector(`[data-annotation-id="${stored.id}"]`));
   }
 }
 
@@ -306,7 +313,7 @@ async function saveAnnotations(nextAnnotations) {
   await store.save(state.article.id, state.annotations);
 }
 
-function activateAnnotation(id) {
+function activateAnnotation(id, target) {
   const annotation = state.annotations.find((item) => item.id === id);
   if (!annotation) return;
 
@@ -314,14 +321,12 @@ function activateAnnotation(id) {
     saveAnnotations(updateAnnotation(state.annotations, id, { note: " ", type: "note" })).then(() => {
       state.activeId = id;
       renderArticleAndMargin();
-      document.querySelector(`[data-note-id="${id}"] textarea`)?.focus();
+      openComment(id, document.querySelector(`[data-annotation-id="${id}"]`));
     });
     return;
   }
 
-  state.activeId = id;
-  markActive();
-  document.querySelector(`[data-note-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
+  openComment(id, target);
 }
 
 function markActive() {
@@ -345,6 +350,158 @@ async function copyAnnotation(id) {
   if (!annotation) return;
   const text = `${annotation.anchor.exact}\n\n${annotation.note.trim()}`.trim();
   await navigator.clipboard?.writeText(text);
+}
+
+function openComment(id, target) {
+  const annotation = state.annotations.find((item) => item.id === id);
+  if (!annotation) return;
+
+  state.activeId = id;
+  state.commentOpenId = id;
+  markActive();
+  document.querySelector(`[data-note-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
+  renderCommentPopover(annotation, target || document.querySelector(`[data-annotation-id="${id}"]`));
+}
+
+function renderCommentPopover(annotation, target) {
+  const popover = document.querySelector("#comment-popover");
+  const color = annotation.color || "yellow";
+  const colorValue = colorMap.get(color) || colorMap.get("yellow");
+  popover.innerHTML = `
+    <section class="pdf-comment" style="--note-color: ${colorValue}; --note-wash: ${noteWash(color)}">
+      <div class="pdf-comment-header">
+        <span class="note-color"><span aria-hidden="true"></span>${escapeHtml(colorLabelMap.get(color) || color)}</span>
+        <button type="button" data-action="close" title="Close comment">${xIcon()}</button>
+      </div>
+      <blockquote class="quote">${escapeHtml(shortQuote(annotation.anchor.exact))}</blockquote>
+      <textarea class="note-editor floating-editor" data-action="edit" placeholder="Write a comment...">${escapeHtml(annotation.note.trim())}</textarea>
+      <div class="handwriting-block">
+        <div class="handwriting-header">
+          <strong>Handwriting</strong>
+          <button type="button" data-action="clear-ink">Clear ink</button>
+        </div>
+        <canvas class="ink-canvas" width="620" height="220" aria-label="Handwriting canvas"></canvas>
+      </div>
+      <div class="note-actions pdf-actions">
+        <button type="button" data-action="jump" title="Jump to highlight">${pencilIcon()}</button>
+        <button type="button" data-action="copy" title="Copy comment">${copyIcon()}</button>
+        <button type="button" data-action="delete" title="Delete comment">${trashIcon()}</button>
+      </div>
+    </section>
+  `;
+
+  const rect = target?.getBoundingClientRect?.() || { left: window.innerWidth / 2, top: 140, width: 0, bottom: 160 };
+  const left = Math.min(window.innerWidth - 390, Math.max(96, rect.left + rect.width + 16));
+  const top = Math.min(window.innerHeight - 460, Math.max(88, rect.bottom + 8));
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+  popover.classList.add("is-visible");
+
+  popover.querySelector('[data-action="close"]').addEventListener("click", closeCommentPopover);
+  popover.querySelector('[data-action="jump"]').addEventListener("click", () => scrollToHighlight(annotation.id));
+  popover.querySelector('[data-action="copy"]').addEventListener("click", () => copyAnnotation(annotation.id));
+  popover.querySelector('[data-action="delete"]').addEventListener("click", () => removeAnnotation(annotation.id));
+  popover.querySelector('[data-action="clear-ink"]').addEventListener("click", () => clearHandwriting(annotation.id));
+
+  const textarea = popover.querySelector("textarea");
+  textarea.addEventListener("blur", async () => {
+    await saveAnnotations(updateAnnotation(state.annotations, annotation.id, { note: textarea.value, type: "note" }));
+  });
+  textarea.addEventListener("keydown", async (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") textarea.blur();
+    if (event.key === "Escape" && textarea.value.trim() === "") {
+      event.preventDefault();
+      await removeAnnotation(annotation.id);
+      closeCommentPopover();
+    }
+  });
+
+  bindHandwritingCanvas(popover.querySelector("canvas"), annotation);
+  textarea.focus();
+}
+
+function bindHandwritingCanvas(canvas, annotation) {
+  const context = canvas.getContext("2d");
+  const ratio = window.devicePixelRatio || 1;
+  const displayWidth = canvas.clientWidth || 310;
+  const displayHeight = canvas.clientHeight || 160;
+  canvas.width = Math.round(displayWidth * ratio);
+  canvas.height = Math.round(displayHeight * ratio);
+  context.scale(ratio, ratio);
+  context.lineWidth = 2.2;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "#1f1f1f";
+
+  if (annotation.handwriting) {
+    const image = new Image();
+    image.onload = () => context.drawImage(image, 0, 0, displayWidth, displayHeight);
+    image.src = annotation.handwriting;
+  }
+
+  let drawing = false;
+  let moved = false;
+  const point = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+
+  canvas.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    drawing = true;
+    moved = false;
+    const { x, y } = point(event);
+    context.beginPath();
+    context.moveTo(x, y);
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!drawing) return;
+    const { x, y } = point(event);
+    context.lineTo(x, y);
+    context.stroke();
+    moved = true;
+  });
+  canvas.addEventListener("pointerup", async () => {
+    if (!drawing) return;
+    drawing = false;
+    if (moved) await saveHandwriting(annotation.id, canvas.toDataURL("image/png"));
+  });
+  canvas.addEventListener("pointercancel", () => {
+    drawing = false;
+  });
+}
+
+async function saveHandwriting(id, dataUrl) {
+  await saveAnnotations(updateAnnotation(state.annotations, id, { handwriting: dataUrl, type: "note" }));
+  renderArticleAndMargin();
+}
+
+async function clearHandwriting(id) {
+  await saveAnnotations(updateAnnotation(state.annotations, id, { handwriting: "", type: "note" }));
+  renderArticleAndMargin();
+  const annotation = state.annotations.find((item) => item.id === id);
+  if (annotation) renderCommentPopover(annotation, document.querySelector(`[data-annotation-id="${id}"]`));
+}
+
+function closeCommentPopover() {
+  const popover = document.querySelector("#comment-popover");
+  popover?.classList.remove("is-visible");
+  state.commentOpenId = null;
+}
+
+function closeFloatingCommentOnOutsideClick(event) {
+  if (event.target.closest?.(".comment-popover, .comment-marker, .highlight, .popover")) return;
+  closeCommentPopover();
+}
+
+function findSameAnchor(annotations, anchor) {
+  return annotations.find(
+    (annotation) =>
+      annotation.anchor?.exact === anchor.exact &&
+      annotation.anchor?.startOffset === anchor.startOffset &&
+      annotation.anchor?.endOffset === anchor.endOffset
+  );
 }
 
 function exportMarkdown() {
@@ -487,4 +644,8 @@ function copyIcon() {
 
 function trashIcon() {
   return svg('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="m10 11 .4 6"/><path d="m14 11-.4 6"/><path d="M6 7l1 14h10l1-14"/>', { size: 16 });
+}
+
+function xIcon() {
+  return svg('<path d="M6 6l12 12"/><path d="M18 6 6 18"/>', { size: 16, stroke: 2 });
 }

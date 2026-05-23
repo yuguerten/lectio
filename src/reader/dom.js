@@ -47,6 +47,7 @@ function wrapTextRange(articleRoot, annotation, onActivate) {
   const textNodes = collectTextNodes(articleRoot);
   const startOffset = annotation.resolved?.startOffset ?? annotation.anchor.startOffset;
   const endOffset = annotation.resolved?.endOffset ?? annotation.anchor.endOffset;
+  let lastSpan = null;
 
   for (const item of textNodes) {
     if (item.end <= startOffset || item.start >= endOffset || !item.node.parentNode) continue;
@@ -61,12 +62,33 @@ function wrapTextRange(articleRoot, annotation, onActivate) {
     span.className = "highlight";
     span.dataset.annotationId = annotation.id;
     span.style.backgroundColor = annotation.colorValue;
-    span.title = annotation.note ? "Open note" : "Add note";
+    span.title = annotation.type === "note" ? "Open comment" : "Add comment";
     span.addEventListener("click", (event) => {
       event.stopPropagation();
-      onActivate(annotation.id);
+      onActivate(annotation.id, span);
     });
 
     range.surroundContents(span);
+    lastSpan = span;
   }
+
+  if (annotation.type === "note" && lastSpan?.parentNode) {
+    const marker = document.createElement("button");
+    marker.className = "comment-marker";
+    marker.type = "button";
+    marker.dataset.annotationId = annotation.id;
+    marker.title = "Open comment";
+    marker.setAttribute("aria-label", "Open comment");
+    marker.innerHTML = commentIcon();
+    marker.addEventListener("mousedown", (event) => event.preventDefault());
+    marker.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onActivate(annotation.id, marker);
+    });
+    lastSpan.after(marker);
+  }
+}
+
+function commentIcon() {
+  return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-5 4V7a2 2 0 0 1 2-2Z"/></svg>';
 }
