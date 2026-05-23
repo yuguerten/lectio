@@ -1,0 +1,17 @@
+{
+  "name": "openread",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive study reader browser extension for technical articles.",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}
