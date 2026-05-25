@@ -9,22 +9,34 @@ import {
 } from "../core/annotations.js";
 import { generateMarkdownExport } from "../core/exportMarkdown.js";
 import { createAnchorFromSelection, resolveAnchor } from "../core/textAnchor.js";
-import { createAnnotationStore, createChromeStorageAdapter } from "../core/localPersistence.js";
+import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore } from "../core/localPersistence.js";
 import { renderHighlights, sanitizeArticleHtml } from "./dom.js";
 
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
 const colorLabelMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.label]));
+const DRAWING_COLORS = ["#171717", "#e03131", "#1971c2", "#2f9e44", "#f08c00"];
 const state = {
   article: null,
   annotations: [],
+  drawings: [],
   filters: { color: "all", type: "all" },
   searchQuery: "",
   activeId: null,
   commentOpenId: null,
-  selectionAnchor: null
+  selectionAnchor: null,
+  drawing: {
+    enabled: false,
+    tool: "pen",
+    color: DRAWING_COLORS[0],
+    size: 4,
+    activeStroke: null,
+    redoStack: []
+  }
 };
 
-const store = createAnnotationStore(createChromeStorageAdapter());
+const storageAdapter = createChromeStorageAdapter();
+const store = createAnnotationStore(storageAdapter);
+const drawingStore = createDrawingStore(storageAdapter);
 const app = document.querySelector("#app");
 
 boot().catch((error) => {
@@ -34,7 +46,9 @@ boot().catch((error) => {
 async function boot() {
   state.article = await loadArticleFromSession();
   if (state.article.error) throw new Error(state.article.error);
-  state.annotations = await store.load(state.article.id);
+  const [annotations, drawings] = await Promise.all([store.load(state.article.id), drawingStore.load(state.article.id)]);
+  state.annotations = annotations;
+  state.drawings = drawings;
   renderWorkspace();
 }
 
@@ -81,37 +95,37 @@ function renderWorkspace() {
             <option value="notes">Notes</option>
             <option value="highlights">Highlights</option>
           </select>
+          <button id="review-open" class="review-button" type="button" title="Review annotations">${listIcon()} Review</button>
+          <button id="draw-toggle" class="draw-toggle" type="button" aria-pressed="false" title="Draw on page">${drawIcon()} Draw</button>
           <button id="export-md" class="export-button" type="button">${downloadIcon()} Export Markdown</button>
         </div>
       </header>
 
-      <aside class="left-rail" aria-label="Workspace tools">
-        <button class="rail-button" type="button" title="Menu">${menuIcon()}</button>
-        <button class="rail-button is-active" type="button" title="Reader">${documentIcon()}</button>
-        <button class="rail-button" type="button" title="Recent notes">${clockIcon()}</button>
-        <div class="rail-spacer"></div>
-        <div class="avatar" aria-hidden="true">OR</div>
-        <button class="rail-button" type="button" title="Settings">${settingsIcon()}</button>
-      </aside>
-
       <div class="study-layout">
         <section class="paper-shell">
           <article id="article" class="article"></article>
+          <canvas id="drawing-canvas" class="drawing-canvas" aria-label="Drawing layer"></canvas>
         </section>
-        <aside class="notes-panel" aria-label="Annotation notes">
-          <div class="notes-header">
-            <strong id="notes-count">0 notes</strong>
-            <div class="notes-header-actions">
-              <button id="clear-filters" type="button">Clear filters</button>
-              <button class="icon-button" type="button" title="Note filters">${slidersIcon()}</button>
-            </div>
-          </div>
-          <div id="margin" class="margin"></div>
-          <div class="new-note-bar">
-            <button id="new-note" type="button">${plusIcon()} New note <kbd>N</kbd></button>
-          </div>
-        </aside>
       </div>
+      <div id="drawing-tools" class="drawing-tools" aria-label="Drawing tools">
+        <button class="icon-tool is-active" type="button" data-tool="pen" title="Pen">${penIcon()}</button>
+        <button class="icon-tool" type="button" data-tool="line" title="Line">${lineIcon()}</button>
+        <button class="icon-tool" type="button" data-tool="arrow" title="Arrow">${arrowIcon()}</button>
+        <button class="icon-tool" type="button" data-tool="rect" title="Rectangle">${rectangleIcon()}</button>
+        <button class="icon-tool" type="button" data-tool="ellipse" title="Ellipse">${ellipseIcon()}</button>
+        <button class="icon-tool" type="button" data-tool="eraser" title="Eraser">${eraserIcon()}</button>
+        <div class="drawing-swatches" aria-label="Drawing color">
+          ${DRAWING_COLORS.map((color) => `<button class="drawing-swatch" type="button" data-color="${color}" title="${color}" style="background:${color}"></button>`).join("")}
+        </div>
+        <label class="size-control" title="Brush size">
+          ${brushIcon()}
+          <input id="draw-size" type="range" min="2" max="18" value="4" />
+        </label>
+        <button id="draw-undo" class="icon-tool" type="button" title="Undo">${undoIcon()}</button>
+        <button id="draw-redo" class="icon-tool" type="button" title="Redo">${redoIcon()}</button>
+        <button id="draw-clear" class="icon-tool" type="button" title="Clear drawing">${trashIcon()}</button>
+      </div>
+      <div id="review-modal" class="review-modal" aria-live="polite"></div>
       <div id="selection-popover" class="popover" role="toolbar" aria-label="Selection actions"></div>
       <div id="comment-popover" class="comment-popover" aria-live="polite"></div>
     </main>
@@ -139,21 +153,15 @@ function renderWorkspace() {
       window.find?.(event.target.value.trim(), false, false, true);
     }
   });
-  document.querySelector("#clear-filters").addEventListener("click", () => {
-    state.filters = { color: "all", type: "all" };
-    state.searchQuery = "";
-    renderWorkspace();
-  });
-  document.querySelector("#new-note").addEventListener("click", () => {
-    document.querySelector("#article")?.scrollIntoView({ block: "start", behavior: "smooth" });
-  });
-  document.addEventListener("keydown", focusSearchShortcut);
+  document.addEventListener("keydown", handleGlobalKeydown);
   document.querySelector("#export-md").addEventListener("click", exportMarkdown);
+  document.querySelector("#review-open").addEventListener("click", openReviewModal);
   document.querySelector("#selection-popover").addEventListener("mousedown", (event) => event.preventDefault());
   document.addEventListener("mousedown", closeFloatingCommentOnOutsideClick);
 
   renderArticleAndMargin();
   bindSelectionPopover();
+  bindDrawingControls();
 }
 
 function renderArticleAndMargin() {
@@ -170,81 +178,16 @@ function renderArticleAndMargin() {
     .filter((annotation) => annotation.resolved);
 
   renderHighlights(articleRoot, visible, activateAnnotation);
-  renderMargin(visible.filter((annotation) => annotation.type === "note"));
   markActive();
-}
-
-function renderMargin(notes) {
-  const margin = document.querySelector("#margin");
-  document.querySelector("#notes-count").textContent = `${notes.length} ${notes.length === 1 ? "note" : "notes"}`;
-
-  if (notes.length === 0) {
-    margin.innerHTML = `<p class="empty">Select text in the article and choose Add note. Notes will stack here without covering the page.</p>`;
-    return;
+  for (const image of articleRoot.querySelectorAll("img")) {
+    image.addEventListener("load", resizeDrawingCanvas, { once: true });
   }
-
-  margin.innerHTML = notes
-    .map((annotation) => noteCardTemplate(annotation))
-    .join("");
-
-  for (const card of margin.querySelectorAll(".note-card")) {
-    const id = card.dataset.noteId;
-    card.addEventListener("click", () => activateAnnotation(id));
-    card.querySelector('[data-action="jump"]').addEventListener("click", (event) => {
-      event.stopPropagation();
-      scrollToHighlight(id);
-    });
-    card.querySelector('[data-action="copy"]').addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await copyAnnotation(id);
-    });
-    card.querySelector('[data-action="delete"]').addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await removeAnnotation(id);
-    });
-
-    const textarea = card.querySelector("textarea");
-    textarea.addEventListener("click", (event) => event.stopPropagation());
-    textarea.addEventListener("blur", async () => {
-      await saveAnnotations(updateAnnotation(state.annotations, id, { note: textarea.value }));
-      renderArticleAndMargin();
-    });
-    textarea.addEventListener("keydown", async (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        textarea.blur();
-      }
-      if (event.key === "Escape" && textarea.value.trim() === "") {
-        event.preventDefault();
-        await removeAnnotation(id);
-      }
-    });
-  }
-}
-
-function noteCardTemplate(annotation) {
-  const color = annotation.color || "yellow";
-  const colorValue = colorMap.get(color) || colorMap.get("yellow");
-  return `
-    <section class="note-card" data-note-id="${annotation.id}" style="--note-color: ${colorValue}; --note-wash: ${noteWash(color)}" tabindex="0">
-      <div class="connector-dot" aria-hidden="true"></div>
-      <div class="note-card-header">
-        <span class="note-color"><span aria-hidden="true"></span>${escapeHtml(colorLabelMap.get(color) || color)}</span>
-        <time>${relativeTime(annotation.updatedAt || annotation.createdAt)}</time>
-      </div>
-      <blockquote class="quote">${escapeHtml(shortQuote(annotation.anchor.exact))}</blockquote>
-      <textarea class="note-editor" data-action="edit" placeholder="Write a note...">${escapeHtml(annotation.note.trim())}</textarea>
-      ${annotation.handwriting ? `<img class="ink-preview" src="${escapeAttribute(annotation.handwriting)}" alt="Handwritten note preview" />` : ""}
-      <div class="note-actions">
-        <button type="button" data-action="jump" title="Jump to highlight">${pencilIcon()}</button>
-        <button type="button" data-action="copy" title="Copy note">${copyIcon()}</button>
-        <button type="button" data-action="delete" title="Delete note">${trashIcon()}</button>
-      </div>
-    </section>
-  `;
+  requestAnimationFrame(resizeDrawingCanvas);
 }
 
 function bindSelectionPopover() {
   document.addEventListener("selectionchange", () => {
+    if (state.drawing.enabled) return;
     const selection = window.getSelection();
     const articleRoot = document.querySelector("#article");
     const anchor = createAnchorFromSelection(articleRoot, selection);
@@ -330,12 +273,11 @@ function activateAnnotation(id, target) {
 }
 
 function markActive() {
-  document.querySelectorAll(".highlight, .note-card").forEach((element) => element.classList.remove("is-focused"));
+  document.querySelectorAll(".highlight, .comment-marker").forEach((element) => element.classList.remove("is-focused"));
   if (!state.activeId) return;
   document.querySelectorAll(`[data-annotation-id="${state.activeId}"]`).forEach((element) => {
     element.classList.add("is-focused");
   });
-  document.querySelector(`[data-note-id="${state.activeId}"]`)?.classList.add("is-focused");
 }
 
 function scrollToHighlight(id) {
@@ -359,7 +301,6 @@ function openComment(id, target) {
   state.activeId = id;
   state.commentOpenId = id;
   markActive();
-  document.querySelector(`[data-note-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
   renderCommentPopover(annotation, target || document.querySelector(`[data-annotation-id="${id}"]`));
 }
 
@@ -375,13 +316,6 @@ function renderCommentPopover(annotation, target) {
       </div>
       <blockquote class="quote">${escapeHtml(shortQuote(annotation.anchor.exact))}</blockquote>
       <textarea class="note-editor floating-editor" data-action="edit" placeholder="Write a comment...">${escapeHtml(annotation.note.trim())}</textarea>
-      <div class="handwriting-block">
-        <div class="handwriting-header">
-          <strong>Handwriting</strong>
-          <button type="button" data-action="clear-ink">Clear ink</button>
-        </div>
-        <canvas class="ink-canvas" width="620" height="220" aria-label="Handwriting canvas"></canvas>
-      </div>
       <div class="note-actions pdf-actions">
         <button type="button" data-action="jump" title="Jump to highlight">${pencilIcon()}</button>
         <button type="button" data-action="copy" title="Copy comment">${copyIcon()}</button>
@@ -391,17 +325,22 @@ function renderCommentPopover(annotation, target) {
   `;
 
   const rect = target?.getBoundingClientRect?.() || { left: window.innerWidth / 2, top: 140, width: 0, bottom: 160 };
-  const left = Math.min(window.innerWidth - 390, Math.max(96, rect.left + rect.width + 16));
-  const top = Math.min(window.innerHeight - 460, Math.max(88, rect.bottom + 8));
+  const popoverWidth = Math.min(380, window.innerWidth - 28);
+  const preferredLeft = rect.left + rect.width + 16;
+  const fallbackLeft = rect.left - popoverWidth - 16;
+  const left = preferredLeft + popoverWidth <= window.innerWidth - 14 ? preferredLeft : Math.max(14, fallbackLeft);
+  const top = Math.min(window.innerHeight - 280, Math.max(88, rect.bottom + 8));
   popover.style.left = `${left}px`;
-  popover.style.top = `${top}px`;
+  popover.style.top = `${Math.max(88, top)}px`;
   popover.classList.add("is-visible");
 
   popover.querySelector('[data-action="close"]').addEventListener("click", closeCommentPopover);
   popover.querySelector('[data-action="jump"]').addEventListener("click", () => scrollToHighlight(annotation.id));
   popover.querySelector('[data-action="copy"]').addEventListener("click", () => copyAnnotation(annotation.id));
-  popover.querySelector('[data-action="delete"]').addEventListener("click", () => removeAnnotation(annotation.id));
-  popover.querySelector('[data-action="clear-ink"]').addEventListener("click", () => clearHandwriting(annotation.id));
+  popover.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+    await removeAnnotation(annotation.id);
+    closeCommentPopover();
+  });
 
   const textarea = popover.querySelector("textarea");
   textarea.addEventListener("blur", async () => {
@@ -415,73 +354,7 @@ function renderCommentPopover(annotation, target) {
       closeCommentPopover();
     }
   });
-
-  bindHandwritingCanvas(popover.querySelector("canvas"), annotation);
   textarea.focus();
-}
-
-function bindHandwritingCanvas(canvas, annotation) {
-  const context = canvas.getContext("2d");
-  const ratio = window.devicePixelRatio || 1;
-  const displayWidth = canvas.clientWidth || 310;
-  const displayHeight = canvas.clientHeight || 160;
-  canvas.width = Math.round(displayWidth * ratio);
-  canvas.height = Math.round(displayHeight * ratio);
-  context.scale(ratio, ratio);
-  context.lineWidth = 2.2;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.strokeStyle = "#1f1f1f";
-
-  if (annotation.handwriting) {
-    const image = new Image();
-    image.onload = () => context.drawImage(image, 0, 0, displayWidth, displayHeight);
-    image.src = annotation.handwriting;
-  }
-
-  let drawing = false;
-  let moved = false;
-  const point = (event) => {
-    const rect = canvas.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-  };
-
-  canvas.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    canvas.setPointerCapture(event.pointerId);
-    drawing = true;
-    moved = false;
-    const { x, y } = point(event);
-    context.beginPath();
-    context.moveTo(x, y);
-  });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!drawing) return;
-    const { x, y } = point(event);
-    context.lineTo(x, y);
-    context.stroke();
-    moved = true;
-  });
-  canvas.addEventListener("pointerup", async () => {
-    if (!drawing) return;
-    drawing = false;
-    if (moved) await saveHandwriting(annotation.id, canvas.toDataURL("image/png"));
-  });
-  canvas.addEventListener("pointercancel", () => {
-    drawing = false;
-  });
-}
-
-async function saveHandwriting(id, dataUrl) {
-  await saveAnnotations(updateAnnotation(state.annotations, id, { handwriting: dataUrl, type: "note" }));
-  renderArticleAndMargin();
-}
-
-async function clearHandwriting(id) {
-  await saveAnnotations(updateAnnotation(state.annotations, id, { handwriting: "", type: "note" }));
-  renderArticleAndMargin();
-  const annotation = state.annotations.find((item) => item.id === id);
-  if (annotation) renderCommentPopover(annotation, document.querySelector(`[data-annotation-id="${id}"]`));
 }
 
 function closeCommentPopover() {
@@ -491,7 +364,7 @@ function closeCommentPopover() {
 }
 
 function closeFloatingCommentOnOutsideClick(event) {
-  if (event.target.closest?.(".comment-popover, .comment-marker, .highlight, .popover")) return;
+  if (event.target.closest?.(".comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
 }
 
@@ -504,8 +377,256 @@ function findSameAnchor(annotations, anchor) {
   );
 }
 
+function bindDrawingControls() {
+  const canvas = document.querySelector("#drawing-canvas");
+  const toggle = document.querySelector("#draw-toggle");
+  const tools = document.querySelector("#drawing-tools");
+  const sizeInput = document.querySelector("#draw-size");
+  if (!canvas || !toggle || !tools || !sizeInput) return;
+
+  toggle.addEventListener("click", () => setDrawingEnabled(!state.drawing.enabled));
+  tools.querySelectorAll("[data-tool]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.drawing.tool = button.dataset.tool;
+      updateDrawingControls();
+    });
+  });
+  tools.querySelectorAll("[data-color]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.drawing.color = button.dataset.color;
+      state.drawing.tool = "pen";
+      updateDrawingControls();
+    });
+  });
+  sizeInput.addEventListener("input", () => {
+    state.drawing.size = Number(sizeInput.value) || 4;
+  });
+  document.querySelector("#draw-undo").addEventListener("click", undoDrawing);
+  document.querySelector("#draw-redo").addEventListener("click", redoDrawing);
+  document.querySelector("#draw-clear").addEventListener("click", clearDrawings);
+
+  canvas.addEventListener("pointerdown", startDrawing);
+  canvas.addEventListener("pointermove", continueDrawing);
+  canvas.addEventListener("pointerup", finishDrawing);
+  canvas.addEventListener("pointercancel", cancelDrawing);
+  window.addEventListener("resize", resizeDrawingCanvas);
+  updateDrawingControls();
+  resizeDrawingCanvas();
+}
+
+function setDrawingEnabled(enabled) {
+  state.drawing.enabled = enabled;
+  if (enabled) {
+    window.getSelection()?.removeAllRanges();
+    document.querySelector("#selection-popover")?.classList.remove("is-visible");
+    closeCommentPopover();
+  } else {
+    cancelDrawing();
+  }
+  updateDrawingControls();
+}
+
+function updateDrawingControls() {
+  document.querySelector(".paper-shell")?.classList.toggle("is-drawing", state.drawing.enabled);
+  document.querySelector("#draw-toggle")?.classList.toggle("is-active", state.drawing.enabled);
+  document.querySelector("#draw-toggle")?.setAttribute("aria-pressed", String(state.drawing.enabled));
+  document.querySelector("#drawing-tools")?.classList.toggle("is-visible", state.drawing.enabled);
+  document.querySelectorAll("[data-tool]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.tool === state.drawing.tool);
+  });
+  document.querySelectorAll("[data-color]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.color === state.drawing.color);
+  });
+  const sizeInput = document.querySelector("#draw-size");
+  if (sizeInput) sizeInput.value = state.drawing.size;
+}
+
+function resizeDrawingCanvas() {
+  const canvas = document.querySelector("#drawing-canvas");
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.round(rect.width * ratio));
+  const height = Math.max(1, Math.round(rect.height * ratio));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  redrawDrawingCanvas();
+}
+
+function redrawDrawingCanvas() {
+  const canvas = document.querySelector("#drawing-canvas");
+  if (!canvas) return;
+  const context = canvas.getContext("2d");
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.save();
+  context.scale(ratio, ratio);
+  for (const stroke of state.drawings) drawStroke(context, stroke, rect.width, rect.height);
+  if (state.drawing.activeStroke) drawStroke(context, state.drawing.activeStroke, rect.width, rect.height);
+  context.restore();
+}
+
+function drawStroke(context, stroke, width, height) {
+  if (!stroke.points?.length) return;
+  context.save();
+  context.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+  context.strokeStyle = stroke.color;
+  context.lineWidth = stroke.size;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+
+  if (["line", "arrow", "rect", "ellipse"].includes(stroke.tool)) {
+    drawShape(context, stroke, width, height);
+    context.restore();
+    return;
+  }
+
+  context.beginPath();
+  stroke.points.forEach((point, index) => {
+    const x = point.x * width;
+    const y = point.y * height;
+    if (index === 0) context.moveTo(x, y);
+    else context.lineTo(x, y);
+  });
+  if (stroke.points.length === 1) {
+    const point = stroke.points[0];
+    context.lineTo(point.x * width + 0.01, point.y * height + 0.01);
+  }
+  context.stroke();
+  context.restore();
+}
+
+function drawShape(context, stroke, width, height) {
+  const start = stroke.points[0];
+  const end = stroke.points.at(-1) || start;
+  const x1 = start.x * width;
+  const y1 = start.y * height;
+  const x2 = end.x * width;
+  const y2 = end.y * height;
+
+  if (stroke.tool === "line" || stroke.tool === "arrow") {
+    context.beginPath();
+    context.moveTo(x1, y1);
+    context.lineTo(x2, y2);
+    context.stroke();
+    if (stroke.tool === "arrow") drawArrowHead(context, x1, y1, x2, y2, stroke.size);
+    return;
+  }
+
+  const left = Math.min(x1, x2);
+  const top = Math.min(y1, y2);
+  const shapeWidth = Math.abs(x2 - x1);
+  const shapeHeight = Math.abs(y2 - y1);
+  context.beginPath();
+  if (stroke.tool === "rect") {
+    context.rect(left, top, shapeWidth, shapeHeight);
+  } else {
+    context.ellipse(left + shapeWidth / 2, top + shapeHeight / 2, shapeWidth / 2, shapeHeight / 2, 0, 0, Math.PI * 2);
+  }
+  context.stroke();
+}
+
+function drawArrowHead(context, x1, y1, x2, y2, size) {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const length = Math.max(12, size * 4);
+  context.beginPath();
+  context.moveTo(x2, y2);
+  context.lineTo(x2 - length * Math.cos(angle - Math.PI / 6), y2 - length * Math.sin(angle - Math.PI / 6));
+  context.moveTo(x2, y2);
+  context.lineTo(x2 - length * Math.cos(angle + Math.PI / 6), y2 - length * Math.sin(angle + Math.PI / 6));
+  context.stroke();
+}
+
+function startDrawing(event) {
+  if (!state.drawing.enabled) return;
+  event.preventDefault();
+  const canvas = event.currentTarget;
+  canvas.setPointerCapture(event.pointerId);
+  state.drawing.activeStroke = {
+    id: crypto.randomUUID?.() || `stroke_${Date.now()}`,
+    tool: state.drawing.tool,
+    color: state.drawing.color,
+    size: state.drawing.tool === "eraser" ? state.drawing.size * 3 : state.drawing.size,
+    points: [pointFromEvent(event, canvas)]
+  };
+  redrawDrawingCanvas();
+}
+
+function continueDrawing(event) {
+  if (!state.drawing.activeStroke) return;
+  event.preventDefault();
+  const canvas = event.currentTarget;
+  const nextPoint = pointFromEvent(event, canvas);
+  if (["line", "arrow", "rect", "ellipse"].includes(state.drawing.activeStroke.tool)) {
+    state.drawing.activeStroke.points = [state.drawing.activeStroke.points[0], nextPoint];
+    redrawDrawingCanvas();
+    return;
+  }
+  const previous = state.drawing.activeStroke.points.at(-1);
+  if (previous && Math.hypot(nextPoint.x - previous.x, nextPoint.y - previous.y) < 0.0018) return;
+  state.drawing.activeStroke.points.push(nextPoint);
+  redrawDrawingCanvas();
+}
+
+async function finishDrawing(event) {
+  if (!state.drawing.activeStroke) return;
+  event.preventDefault();
+  state.drawings = [...state.drawings, state.drawing.activeStroke];
+  state.drawing.activeStroke = null;
+  state.drawing.redoStack = [];
+  redrawDrawingCanvas();
+  await saveDrawings();
+}
+
+function cancelDrawing() {
+  state.drawing.activeStroke = null;
+  redrawDrawingCanvas();
+}
+
+function pointFromEvent(event, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+    y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
+  };
+}
+
+async function undoDrawing() {
+  if (state.drawings.length === 0) return;
+  const removed = state.drawings.at(-1);
+  state.drawings = state.drawings.slice(0, -1);
+  state.drawing.redoStack = [removed, ...state.drawing.redoStack];
+  redrawDrawingCanvas();
+  await saveDrawings();
+}
+
+async function redoDrawing() {
+  if (state.drawing.redoStack.length === 0) return;
+  const [restored, ...rest] = state.drawing.redoStack;
+  state.drawings = [...state.drawings, restored];
+  state.drawing.redoStack = rest;
+  redrawDrawingCanvas();
+  await saveDrawings();
+}
+
+async function clearDrawings() {
+  if (state.drawings.length === 0) return;
+  state.drawing.redoStack = [...state.drawings].reverse();
+  state.drawings = [];
+  redrawDrawingCanvas();
+  await saveDrawings();
+}
+
+async function saveDrawings() {
+  await drawingStore.save(state.article.id, state.drawings);
+}
+
 function exportMarkdown() {
-  const markdown = generateMarkdownExport(state.article, state.annotations);
+  const drawingImage = createDrawingExportImage();
+  const markdown = generateMarkdownExport(state.article, state.annotations, { drawingImage, drawings: state.drawings });
   const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -515,11 +636,115 @@ function exportMarkdown() {
   URL.revokeObjectURL(url);
 }
 
-function focusSearchShortcut(event) {
+function handleGlobalKeydown(event) {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     document.querySelector("#article-search")?.focus();
+    return;
   }
+  if (event.key.toLowerCase() === "d" && !event.metaKey && !event.ctrlKey && !event.altKey && !isTypingTarget(event.target)) {
+    event.preventDefault();
+    setDrawingEnabled(!state.drawing.enabled);
+    return;
+  }
+  if (event.key === "Escape") {
+    if (document.querySelector("#review-modal")?.classList.contains("is-visible")) {
+      event.preventDefault();
+      closeReviewModal();
+      return;
+    }
+    if (state.drawing.enabled) {
+      event.preventDefault();
+      setDrawingEnabled(false);
+    }
+  }
+}
+
+function isTypingTarget(target) {
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName) || target?.isContentEditable;
+}
+
+function createDrawingExportImage() {
+  if (state.drawings.length === 0) return "";
+  const source = document.querySelector("#drawing-canvas");
+  if (!source) return "";
+  const exportCanvas = document.createElement("canvas");
+  exportCanvas.width = source.width;
+  exportCanvas.height = source.height;
+  const context = exportCanvas.getContext("2d");
+  context.fillStyle = "#fffdf8";
+  context.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+  context.drawImage(source, 0, 0);
+  return exportCanvas.toDataURL("image/png");
+}
+
+function openReviewModal() {
+  const modal = document.querySelector("#review-modal");
+  if (!modal) return;
+  const notes = state.annotations.filter((annotation) => annotation.type === "note");
+  const highlights = state.annotations.filter((annotation) => annotation.type !== "note");
+  modal.innerHTML = `
+    <section class="review-sheet" role="dialog" aria-modal="true" aria-label="Review annotations">
+      <div class="review-header">
+        <div>
+          <strong>Review</strong>
+          <span>${notes.length} notes, ${highlights.length} highlights, ${state.drawings.length} drawings</span>
+        </div>
+        <button type="button" data-action="close" title="Close">${xIcon()}</button>
+      </div>
+      <div class="review-list">
+        ${reviewItemsTemplate(notes, highlights)}
+      </div>
+    </section>
+  `;
+  modal.classList.add("is-visible");
+  modal.querySelector('[data-action="close"]').addEventListener("click", closeReviewModal);
+  modal.onmousedown = (event) => {
+    if (event.target === modal) closeReviewModal();
+  };
+  modal.querySelectorAll("[data-jump]").forEach((button) => {
+    button.addEventListener("click", () => {
+      closeReviewModal();
+      scrollToHighlight(button.dataset.jump);
+    });
+  });
+  modal.querySelector('[data-action="draw"]')?.addEventListener("click", () => {
+    closeReviewModal();
+    setDrawingEnabled(true);
+  });
+}
+
+function reviewItemsTemplate(notes, highlights) {
+  const items = [...notes, ...highlights]
+    .sort((a, b) => a.anchor.startOffset - b.anchor.startOffset)
+    .map((annotation) => `
+      <article class="review-item">
+        <div>
+          <span class="review-kind">${annotation.type === "note" ? "Note" : "Highlight"}</span>
+          <p>${escapeHtml(shortQuote(annotation.anchor.exact))}</p>
+          ${annotation.note?.trim() ? `<small>${escapeHtml(shortQuote(annotation.note.trim()))}</small>` : ""}
+        </div>
+        <button type="button" data-jump="${annotation.id}" title="Jump to annotation">${pencilIcon()}</button>
+      </article>
+    `);
+
+  if (state.drawings.length) {
+    items.push(`
+      <article class="review-item">
+        <div>
+          <span class="review-kind">Drawing</span>
+          <p>${state.drawings.length} mark${state.drawings.length === 1 ? "" : "s"} on this article</p>
+        </div>
+        <button type="button" data-action="draw" title="Open drawing mode">${drawIcon()}</button>
+      </article>
+    `);
+  }
+
+  return items.length ? items.join("") : `<p class="review-empty">No annotations yet.</p>`;
+}
+
+function closeReviewModal() {
+  document.querySelector("#review-modal")?.classList.remove("is-visible");
 }
 
 function matchesSearch(annotation) {
@@ -563,17 +788,6 @@ function slugify(text) {
     .slice(0, 80);
 }
 
-function relativeTime(value) {
-  if (!value) return "Just now";
-  const diffMs = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(diffMs) || diffMs < 60_000) return "Just now";
-  const minutes = Math.round(diffMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
 function noteWash(color) {
   return (
     {
@@ -606,28 +820,48 @@ function downloadIcon() {
   return svg('<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>', { size: 17, stroke: 2 });
 }
 
-function menuIcon() {
-  return svg('<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/>', { size: 19 });
+function drawIcon() {
+  return svg('<path d="m4 20 4.2-1 10-10a2.2 2.2 0 0 0-3.1-3.1l-10 10Z"/><path d="m13.5 7.5 3 3"/><path d="M14 20h6"/>', { size: 17 });
 }
 
-function documentIcon() {
-  return svg('<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/>', { size: 19 });
+function listIcon() {
+  return svg('<path d="M8 6h12"/><path d="M8 12h12"/><path d="M8 18h12"/><path d="M4 6h.01"/><path d="M4 12h.01"/><path d="M4 18h.01"/>', { size: 17, stroke: 2 });
 }
 
-function clockIcon() {
-  return svg('<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>', { size: 19 });
+function penIcon() {
+  return svg('<path d="m4 20 4-.8L18.5 8.7a2 2 0 0 0-2.8-2.8L5.2 16.4z"/><path d="m14.5 7.1 2.4 2.4"/>', { size: 17 });
 }
 
-function settingsIcon() {
-  return svg('<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L5 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z"/>', { size: 19, stroke: 1.5 });
+function lineIcon() {
+  return svg('<path d="M5 19 19 5"/>', { size: 17, stroke: 2 });
 }
 
-function slidersIcon() {
-  return svg('<path d="M4 7h10"/><path d="M18 7h2"/><circle cx="16" cy="7" r="2"/><path d="M4 17h2"/><path d="M10 17h10"/><circle cx="8" cy="17" r="2"/>', { size: 18 });
+function arrowIcon() {
+  return svg('<path d="M5 19 19 5"/><path d="M10 5h9v9"/>', { size: 17, stroke: 2 });
 }
 
-function plusIcon() {
-  return svg('<path d="M12 5v14"/><path d="M5 12h14"/>', { size: 17, stroke: 2 });
+function rectangleIcon() {
+  return svg('<rect x="5" y="6" width="14" height="12" rx="1.5"/>', { size: 17 });
+}
+
+function ellipseIcon() {
+  return svg('<ellipse cx="12" cy="12" rx="7" ry="5"/>', { size: 17 });
+}
+
+function eraserIcon() {
+  return svg('<path d="m7 21-4-4 10-10a2.8 2.8 0 0 1 4 4L7 21Z"/><path d="m9 15 4 4"/><path d="M12 21h8"/>', { size: 17 });
+}
+
+function brushIcon() {
+  return svg('<path d="M4 19c2 1 4 .6 5-1.2.8-1.4-.2-2.8-1.6-2.1C5.8 16.5 6 18 4 19Z"/><path d="M8.5 15.5 19 5"/>', { size: 17 });
+}
+
+function undoIcon() {
+  return svg('<path d="M9 7 4 12l5 5"/><path d="M5 12h9a5 5 0 0 1 0 10h-2"/>', { size: 17 });
+}
+
+function redoIcon() {
+  return svg('<path d="m15 7 5 5-5 5"/><path d="M19 12h-9a5 5 0 0 0 0 10h2"/>', { size: 17 });
 }
 
 function noteIcon() {

@@ -16,6 +16,24 @@ export function createAnnotationStore(adapter) {
   };
 }
 
+export function createDrawingStore(adapter) {
+  return {
+    async load(articleId) {
+      const value = await adapter.get(drawingKeyFor(articleId));
+      return Array.isArray(value?.strokes) ? value.strokes : [];
+    },
+
+    async save(articleId, strokes) {
+      await adapter.set(drawingKeyFor(articleId), { strokes });
+      return strokes;
+    },
+
+    async delete(articleId) {
+      await adapter.remove(drawingKeyFor(articleId));
+    }
+  };
+}
+
 export function createChromeStorageAdapter(area = globalThis.chrome?.storage?.local) {
   if (!area) {
     throw new Error("Chrome storage is unavailable.");
@@ -51,4 +69,8 @@ export function createMemoryStorageAdapter(initial = {}) {
 
 function keyFor(articleId) {
   return `openread:annotations:${articleId}`;
+}
+
+function drawingKeyFor(articleId) {
+  return `openread:drawings:${articleId}`;
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAnnotationStore, createMemoryStorageAdapter } from "../src/core/localPersistence.js";
+import { createAnnotationStore, createDrawingStore, createMemoryStorageAdapter } from "../src/core/localPersistence.js";
 
 test("saves, loads, and deletes annotations through an adapter", async () => {
   const store = createAnnotationStore(createMemoryStorageAdapter());
@@ -8,6 +8,18 @@ test("saves, loads, and deletes annotations through an adapter", async () => {
 
   await store.save("https://example.com/post", annotations);
   assert.deepEqual(await store.load("https://example.com/post"), annotations);
+
+  await store.delete("https://example.com/post");
+  assert.deepEqual(await store.load("https://example.com/post"), []);
+});
+
+
+test("saves, loads, and deletes drawing strokes through an adapter", async () => {
+  const store = createDrawingStore(createMemoryStorageAdapter());
+  const strokes = [{ id: "s1", tool: "pen", color: "#171717", size: 4, points: [{ x: 0.2, y: 0.3 }] }];
+
+  await store.save("https://example.com/post", strokes);
+  assert.deepEqual(await store.load("https://example.com/post"), strokes);
 
   await store.delete("https://example.com/post");
   assert.deepEqual(await store.load("https://example.com/post"), []);
