@@ -68,38 +68,57 @@ function renderWorkspace() {
   app.innerHTML = `
     <main class="workspace">
       <header class="appbar">
-        <div class="brand-block">
-          <span class="brand-mark" aria-hidden="true">${bookIcon()}</span>
-          <span class="brand-name">OpenRead</span>
-        </div>
-        <div class="title-block">
-          <h1>${escapeHtml(state.article.title)}</h1>
-          <span class="saved-dot" aria-hidden="true"></span>
-          <span class="saved-label">Saved</span>
+        <div class="reader-meta">
+          <div class="brand-block">
+            <span class="brand-mark" aria-hidden="true">${bookIcon()}</span>
+            <span class="brand-name">OpenRead</span>
+          </div>
+          <div class="title-block">
+            <h1>${escapeHtml(state.article.title)}</h1>
+            <span class="saved-status"><span class="saved-dot" aria-hidden="true"></span>Saved</span>
+          </div>
         </div>
         <div class="top-actions">
-          <a class="source-button" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer">
-            Source page ${externalIcon()}
-          </a>
-          <label class="search-box">
-            ${searchIcon()}
-            <input id="article-search" type="search" placeholder="Search in article..." autocomplete="off" />
-            <kbd>Enter</kbd>
-          </label>
-          <select id="color-filter" aria-label="Filter by color">
-            <option value="all">All colors</option>
-            ${HIGHLIGHT_COLORS.map((color) => `<option value="${color.id}">${color.label}</option>`).join("")}
-          </select>
-          <select id="type-filter" aria-label="Filter by type">
-            <option value="all">All types</option>
-            <option value="notes">Notes</option>
-            <option value="highlights">Highlights</option>
-          </select>
-          <button id="review-open" class="review-button" type="button" title="Review annotations">${listIcon()} Review</button>
-          <button id="draw-toggle" class="draw-toggle" type="button" aria-pressed="false" title="Draw on page">${drawIcon()} Draw</button>
-          <button id="export-md" class="export-button" type="button">${downloadIcon()} Export Markdown</button>
+          <button id="search-toggle" class="toolbar-button search-toggle" type="button" title="Search article" aria-label="Search article">${searchIcon()}</button>
+          <button id="filter-toggle" class="toolbar-button filter-toggle" type="button" title="Filters" aria-label="Filters">${filterIcon()}<span class="filter-indicator" aria-hidden="true"></span></button>
+          <div class="control-group tool-group" aria-label="Reader tools">
+            <a class="source-button icon-only" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer" title="Open source page">
+              ${externalIcon()}
+              <span>Source</span>
+            </a>
+            <button id="review-open" class="review-button" type="button" title="Review annotations">${listIcon()} <span>Review</span></button>
+            <button id="draw-toggle" class="draw-toggle" type="button" aria-pressed="false" title="Draw on page">${drawIcon()} <span>Draw</span></button>
+          </div>
+          <button id="export-md" class="export-button" type="button" title="Export Markdown" aria-label="Export Markdown">${downloadIcon()} <span>Export</span></button>
         </div>
       </header>
+
+      <div id="search-popover" class="search-popover" aria-label="Article search">
+        <label class="search-box">
+          ${searchIcon()}
+          <input id="article-search" type="search" placeholder="Search article" autocomplete="off" />
+          <kbd>/</kbd>
+        </label>
+      </div>
+      <div id="filter-popover" class="filter-popover" aria-label="Annotation filters">
+        <section class="filter-panel">
+          <div class="filter-section">
+            <span>Color</span>
+            <div class="filter-swatches">
+              <button class="filter-any" type="button" data-filter-color="all" title="Any color">Any</button>
+              ${HIGHLIGHT_COLORS.map((color) => `<button class="filter-swatch" type="button" data-filter-color="${color.id}" title="${color.label}" style="--swatch-color:${color.value}"></button>`).join("")}
+            </div>
+          </div>
+          <div class="filter-section">
+            <span>Type</span>
+            <div class="filter-types">
+              <button class="filter-type" type="button" data-filter-type="all" title="All annotations">${listIcon()}</button>
+              <button class="filter-type" type="button" data-filter-type="notes" title="Notes">${noteIcon()}</button>
+              <button class="filter-type" type="button" data-filter-type="highlights" title="Highlights">${highlightIcon()}</button>
+            </div>
+          </div>
+        </section>
+      </div>
 
       <div class="study-layout">
         <section class="paper-shell">
@@ -131,18 +150,10 @@ function renderWorkspace() {
     </main>
   `;
 
-  document.querySelector("#color-filter").value = state.filters.color;
-  document.querySelector("#type-filter").value = state.filters.type;
   document.querySelector("#article-search").value = state.searchQuery;
-
-  document.querySelector("#color-filter").addEventListener("change", (event) => {
-    state.filters.color = event.target.value;
-    renderArticleAndMargin();
-  });
-  document.querySelector("#type-filter").addEventListener("change", (event) => {
-    state.filters.type = event.target.value;
-    renderArticleAndMargin();
-  });
+  document.querySelector("#search-toggle").addEventListener("click", openSearchPopover);
+  document.querySelector("#filter-toggle").addEventListener("click", openFilterPopover);
+  bindFilterControls();
   document.querySelector("#article-search").addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
     renderArticleAndMargin();
@@ -151,6 +162,9 @@ function renderWorkspace() {
   document.querySelector("#article-search").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && event.target.value.trim()) {
       window.find?.(event.target.value.trim(), false, false, true);
+    }
+    if (event.key === "Escape") {
+      closeSearchPopover();
     }
   });
   document.addEventListener("keydown", handleGlobalKeydown);
@@ -364,8 +378,62 @@ function closeCommentPopover() {
 }
 
 function closeFloatingCommentOnOutsideClick(event) {
+  if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
+  if (!event.target.closest?.(".filter-popover, #filter-toggle")) closeFilterPopover();
   if (event.target.closest?.(".comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
+}
+
+function openSearchPopover() {
+  const popover = document.querySelector("#search-popover");
+  document.querySelector("#selection-popover")?.classList.remove("is-visible");
+  closeFilterPopover();
+  closeCommentPopover();
+  popover?.classList.add("is-visible");
+  requestAnimationFrame(() => document.querySelector("#article-search")?.focus());
+}
+
+function closeSearchPopover() {
+  document.querySelector("#search-popover")?.classList.remove("is-visible");
+}
+
+function openFilterPopover() {
+  document.querySelector("#selection-popover")?.classList.remove("is-visible");
+  closeSearchPopover();
+  closeCommentPopover();
+  document.querySelector("#filter-popover")?.classList.toggle("is-visible");
+}
+
+function closeFilterPopover() {
+  document.querySelector("#filter-popover")?.classList.remove("is-visible");
+}
+
+function bindFilterControls() {
+  document.querySelectorAll("[data-filter-color]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.filters.color = button.dataset.filterColor;
+      updateFilterControls();
+      renderArticleAndMargin();
+    });
+  });
+  document.querySelectorAll("[data-filter-type]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.filters.type = button.dataset.filterType;
+      updateFilterControls();
+      renderArticleAndMargin();
+    });
+  });
+  updateFilterControls();
+}
+
+function updateFilterControls() {
+  document.querySelectorAll("[data-filter-color]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.filterColor === state.filters.color);
+  });
+  document.querySelectorAll("[data-filter-type]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.filterType === state.filters.type);
+  });
+  document.querySelector("#filter-toggle")?.classList.toggle("has-filters", state.filters.color !== "all" || state.filters.type !== "all");
 }
 
 function findSameAnchor(annotations, anchor) {
@@ -639,7 +707,12 @@ function exportMarkdown() {
 function handleGlobalKeydown(event) {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    document.querySelector("#article-search")?.focus();
+    openSearchPopover();
+    return;
+  }
+  if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !isTypingTarget(event.target)) {
+    event.preventDefault();
+    openSearchPopover();
     return;
   }
   if (event.key.toLowerCase() === "d" && !event.metaKey && !event.ctrlKey && !event.altKey && !isTypingTarget(event.target)) {
@@ -648,6 +721,16 @@ function handleGlobalKeydown(event) {
     return;
   }
   if (event.key === "Escape") {
+    if (document.querySelector("#search-popover")?.classList.contains("is-visible")) {
+      event.preventDefault();
+      closeSearchPopover();
+      return;
+    }
+    if (document.querySelector("#filter-popover")?.classList.contains("is-visible")) {
+      event.preventDefault();
+      closeFilterPopover();
+      return;
+    }
     if (document.querySelector("#review-modal")?.classList.contains("is-visible")) {
       event.preventDefault();
       closeReviewModal();
@@ -822,6 +905,14 @@ function downloadIcon() {
 
 function drawIcon() {
   return svg('<path d="m4 20 4.2-1 10-10a2.2 2.2 0 0 0-3.1-3.1l-10 10Z"/><path d="m13.5 7.5 3 3"/><path d="M14 20h6"/>', { size: 17 });
+}
+
+function filterIcon() {
+  return svg('<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>', { size: 17, stroke: 2 });
+}
+
+function highlightIcon() {
+  return svg('<path d="M5 19h14"/><path d="m7 15 8-8 2 2-8 8H7z"/>', { size: 17 });
 }
 
 function listIcon() {
