@@ -24,6 +24,15 @@ const state = {
   activeId: null,
   commentOpenId: null,
   selectionAnchor: null,
+  theme: "paper",
+  focusMode: false,
+  listening: false,
+  toc: [],
+  typography: {
+    size: 21,
+    lineHeight: 1.75,
+    width: 760
+  },
   drawing: {
     enabled: false,
     tool: "pen",
@@ -66,32 +75,45 @@ async function loadArticleFromSession() {
 
 function renderWorkspace() {
   app.innerHTML = `
-    <main class="workspace">
+    <main class="workspace theme-paper">
       <header class="appbar">
         <div class="reader-meta">
           <div class="brand-block">
             <span class="brand-mark" aria-hidden="true">${bookIcon()}</span>
             <span class="brand-name">OpenRead</span>
           </div>
+          <div class="appbar-divider" aria-hidden="true"></div>
           <div class="title-block">
             <h1>${escapeHtml(state.article.title)}</h1>
-            <span class="saved-status"><span class="saved-dot" aria-hidden="true"></span>Saved</span>
+            <span class="saved-status">${checkCircleIcon()} Saved</span>
           </div>
         </div>
         <div class="top-actions">
+          <span class="reading-time">${clockIcon()} ${estimateReadingMinutes()} min read</span>
           <button id="search-toggle" class="toolbar-button search-toggle" type="button" title="Search article" aria-label="Search article">${searchIcon()}</button>
-          <button id="filter-toggle" class="toolbar-button filter-toggle" type="button" title="Filters" aria-label="Filters">${filterIcon()}<span class="filter-indicator" aria-hidden="true"></span></button>
-          <div class="control-group tool-group" aria-label="Reader tools">
-            <a class="source-button icon-only" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer" title="Open source page">
-              ${externalIcon()}
-              <span>Source</span>
-            </a>
-            <button id="review-open" class="review-button" type="button" title="Review annotations">${listIcon()} <span>Review</span></button>
-            <button id="draw-toggle" class="draw-toggle" type="button" aria-pressed="false" title="Draw on page">${drawIcon()} <span>Draw</span></button>
-          </div>
-          <button id="export-md" class="export-button" type="button" title="Export Markdown" aria-label="Export Markdown">${downloadIcon()} <span>Export</span></button>
+          <button id="filter-toggle" class="toolbar-button filter-toggle" type="button" title="Filter annotations" aria-label="Filter annotations">${filterIcon()}<span class="filter-indicator" aria-hidden="true"></span></button>
+          <button id="draw-toggle" class="toolbar-button" type="button" aria-pressed="false" title="Draw on page" aria-label="Draw on page">${drawIcon()}</button>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false"><span>${sunIcon()}</span><span>${moonIcon()}</span></button>
+          <button id="typography-toggle" class="text-button" type="button" title="Typography settings" aria-label="Typography settings">Aa</button>
+          <a id="source-open" class="toolbar-button source-button" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer" title="Open source page" aria-label="Open source page">${externalIcon()}</a>
+          <button id="export-md" class="toolbar-button export-button" type="button" title="Export Markdown" aria-label="Export Markdown">${downloadIcon()}</button>
+          <button id="bookmark-top" class="bookmark-button" type="button" title="Bookmark" aria-label="Bookmark article">${bookmarkIcon()}</button>
         </div>
+        <div class="top-progress" aria-hidden="true"><span id="top-progress-bar"></span></div>
       </header>
+      <aside class="reader-sidebar" aria-label="On this page">
+        <div class="toc-panel">
+          <p class="toc-heading">On this page</p>
+          <nav id="toc-list" class="toc-list"></nav>
+        </div>
+        <div class="progress-card" aria-label="Reading progress">
+          <div class="progress-ring" style="--progress:0" aria-hidden="true"></div>
+          <div>
+            <strong>Reading progress</strong>
+            <span id="side-progress-sections">0 of 0 sections</span>
+          </div>
+        </div>
+      </aside>
 
       <div id="search-popover" class="search-popover" aria-label="Article search">
         <label class="search-box">
@@ -119,13 +141,42 @@ function renderWorkspace() {
           </div>
         </section>
       </div>
+      <div id="typography-popover" class="typography-popover" aria-label="Reading settings" role="dialog">
+        <section class="type-panel">
+          <header class="settings-header">
+            <div class="settings-title"><span class="brand-mark" aria-hidden="true">${bookIcon()}</span><h2>Reading settings</h2></div>
+            <button id="type-close" class="settings-close" type="button" aria-label="Close reading settings">${xIcon()}</button>
+          </header>
+          <div class="settings-control">
+            <div class="settings-row-heading"><span class="settings-icon">Aa</span><label for="type-size">Text size</label><strong id="type-size-value"></strong></div>
+            <div class="slider-row"><span>A</span><input id="type-size" type="range" min="18" max="25" value="${state.typography.size}" /><span>AA</span></div>
+          </div>
+          <div class="settings-control">
+            <div class="settings-row-heading"><span class="settings-icon">↕</span><label for="type-line">Line height</label><strong id="type-line-value"></strong></div>
+            <div class="slider-row"><span>1.6×</span><input id="type-line" type="range" min="1.6" max="2" step="0.05" value="${state.typography.lineHeight}" /><span>2.0×</span></div>
+          </div>
+          <div class="settings-control">
+            <div class="settings-row-heading"><span class="settings-icon">↔</span><label for="type-width">Content width</label><strong id="type-width-value"></strong></div>
+            <div class="slider-row"><span>640</span><input id="type-width" type="range" min="640" max="880" step="20" value="${state.typography.width}" /><span>880</span></div>
+          </div>
+        </section>
+      </div>
 
       <div class="study-layout">
         <section class="paper-shell">
-          <article id="article" class="article"></article>
+          <article id="article" class="article" tabindex="-1"></article>
           <canvas id="drawing-canvas" class="drawing-canvas" aria-label="Drawing layer"></canvas>
         </section>
       </div>
+
+      <nav class="reader-tools" aria-label="Reader tools">
+        <button id="highlight-tool" class="reader-tool is-primary" type="button" title="Highlight selected text">${highlightIcon()}<span>Highlight</span></button>
+        <button id="review-open" class="reader-tool" type="button" title="Review notes">${noteIcon()}<span>Notes</span></button>
+        <button id="listen-toggle" class="reader-tool" type="button" title="Listen" aria-pressed="false">${headphonesIcon()}<span>Listen</span></button>
+        <button id="bookmark-tool" class="reader-tool" type="button" title="Bookmark article">${bookmarkIcon()}<span>Bookmark</span></button>
+        <button id="focus-toggle" class="reader-tool" type="button" title="Focus mode" aria-pressed="false">${focusIcon()}<span>Focus</span></button>
+      </nav>
+
       <div id="drawing-tools" class="drawing-tools" aria-label="Drawing tools">
         <button class="icon-tool is-active" type="button" data-tool="pen" title="Pen">${penIcon()}</button>
         <button class="icon-tool" type="button" data-tool="line" title="Line">${lineIcon()}</button>
@@ -144,6 +195,7 @@ function renderWorkspace() {
         <button id="draw-redo" class="icon-tool" type="button" title="Redo">${redoIcon()}</button>
         <button id="draw-clear" class="icon-tool" type="button" title="Clear drawing">${trashIcon()}</button>
       </div>
+      <div id="reader-toast" class="reader-toast" role="status" aria-live="polite"></div>
       <div id="review-modal" class="review-modal" aria-live="polite"></div>
       <div id="selection-popover" class="popover" role="toolbar" aria-label="Selection actions"></div>
       <div id="comment-popover" class="comment-popover" aria-live="polite"></div>
@@ -153,7 +205,17 @@ function renderWorkspace() {
   document.querySelector("#article-search").value = state.searchQuery;
   document.querySelector("#search-toggle").addEventListener("click", openSearchPopover);
   document.querySelector("#filter-toggle").addEventListener("click", openFilterPopover);
+  document.querySelector("#typography-toggle").addEventListener("click", openTypographyPopover);
+  document.querySelector("#type-close").addEventListener("click", closeTypographyPopover);
+  document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
+  document.querySelector("#focus-toggle").addEventListener("click", toggleFocusMode);
+  document.querySelector("#listen-toggle").addEventListener("click", toggleListenMode);
+  document.querySelector("#highlight-tool").addEventListener("click", handleHighlightTool);
+  document.querySelector("#bookmark-tool").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
+  document.querySelector("#bookmark-top").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
   bindFilterControls();
+  bindTypographyControls();
+  applyReaderPreferences();
   document.querySelector("#article-search").addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
     renderArticleAndMargin();
@@ -168,6 +230,8 @@ function renderWorkspace() {
     }
   });
   document.addEventListener("keydown", handleGlobalKeydown);
+  window.addEventListener("scroll", updateReadingProgress, { passive: true });
+  window.addEventListener("resize", updateReadingProgress);
   document.querySelector("#export-md").addEventListener("click", exportMarkdown);
   document.querySelector("#review-open").addEventListener("click", openReviewModal);
   document.querySelector("#selection-popover").addEventListener("mousedown", (event) => event.preventDefault());
@@ -181,6 +245,7 @@ function renderWorkspace() {
 function renderArticleAndMargin() {
   const articleRoot = document.querySelector("#article");
   articleRoot.innerHTML = sanitizeArticleHtml(state.article.html);
+  prepareArticleHeadings(articleRoot);
   const articleText = articleRoot.textContent || "";
   const visible = filterAnnotations(state.annotations, state.filters)
     .filter(matchesSearch)
@@ -192,11 +257,189 @@ function renderArticleAndMargin() {
     .filter((annotation) => annotation.resolved);
 
   renderHighlights(articleRoot, visible, activateAnnotation);
+  renderTableOfContents();
   markActive();
   for (const image of articleRoot.querySelectorAll("img")) {
     image.addEventListener("load", resizeDrawingCanvas, { once: true });
   }
-  requestAnimationFrame(resizeDrawingCanvas);
+  requestAnimationFrame(() => {
+    resizeDrawingCanvas();
+    updateReadingProgress();
+  });
+}
+
+function prepareArticleHeadings(articleRoot) {
+  const headings = [...articleRoot.querySelectorAll("h2, h3")];
+  const fallback = headings.length ? headings : [...articleRoot.querySelectorAll("h1, h2")];
+  state.toc = fallback.slice(0, 12).map((heading, index) => {
+    if (!heading.id) heading.id = `openread-section-${index + 1}`;
+    return {
+      id: heading.id,
+      text: (heading.textContent || `Section ${index + 1}`).trim(),
+      level: heading.tagName.toLowerCase(),
+      index
+    };
+  });
+}
+
+function renderTableOfContents() {
+  const tocList = document.querySelector("#toc-list");
+  if (!tocList) return;
+  if (!state.toc.length) {
+    tocList.innerHTML = `<span class="toc-empty">Article</span>`;
+    return;
+  }
+  tocList.innerHTML = state.toc
+    .map(
+      (item) =>
+        `<a href="#${escapeAttribute(item.id)}" class="toc-link ${item.level === "h3" ? "is-nested" : ""}" data-section-id="${escapeAttribute(item.id)}"><span aria-hidden="true"></span>${escapeHtml(item.text)}</a>`
+    )
+    .join("");
+  tocList.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      document.getElementById(link.dataset.sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
+function updateReadingProgress() {
+  const shell = document.querySelector(".paper-shell");
+  if (!shell) return;
+  const scrollTop = window.scrollY || document.documentElement.scrollTop;
+  const start = Math.max(0, shell.offsetTop - 120);
+  const end = Math.max(start + 1, shell.offsetTop + shell.scrollHeight - window.innerHeight + 120);
+  const progress = clamp((scrollTop - start) / (end - start), 0, 1);
+  const percent = Math.round(progress * 100);
+  document.querySelector("#top-progress-bar")?.style.setProperty("width", `${percent}%`);
+  document.querySelector(".progress-ring")?.style.setProperty("--progress", percent);
+
+  let activeIndex = 0;
+  state.toc.forEach((item, index) => {
+    const heading = document.getElementById(item.id);
+    if (heading && heading.getBoundingClientRect().top <= 150) activeIndex = index;
+  });
+  document.querySelectorAll(".toc-link").forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
+  const sectionText = state.toc.length ? `${Math.min(activeIndex + 1, state.toc.length)} of ${state.toc.length} sections` : "0 of 0 sections";
+  const sideSections = document.querySelector("#side-progress-sections");
+  if (sideSections) sideSections.textContent = sectionText;
+}
+
+function openTypographyPopover() {
+  closeSearchPopover();
+  closeFilterPopover();
+  closeCommentPopover();
+  document.querySelector("#typography-popover")?.classList.toggle("is-visible");
+}
+
+function closeTypographyPopover() {
+  document.querySelector("#typography-popover")?.classList.remove("is-visible");
+}
+
+function bindTypographyControls() {
+  document.querySelector("#type-size")?.addEventListener("input", (event) => {
+    state.typography.size = Number(event.target.value);
+    applyReaderPreferences();
+  });
+  document.querySelector("#type-line")?.addEventListener("input", (event) => {
+    state.typography.lineHeight = Number(event.target.value);
+    applyReaderPreferences();
+  });
+  document.querySelector("#type-width")?.addEventListener("input", (event) => {
+    state.typography.width = Number(event.target.value);
+    applyReaderPreferences();
+  });
+}
+
+function applyReaderPreferences() {
+  const workspace = document.querySelector(".workspace");
+  const article = document.querySelector("#article");
+  if (workspace) {
+    workspace.classList.toggle("theme-night", state.theme === "night");
+    workspace.classList.toggle("theme-paper", state.theme !== "night");
+    workspace.classList.toggle("is-focus-mode", state.focusMode);
+  }
+  if (article) {
+    article.style.setProperty("--article-size", `${state.typography.size}px`);
+    article.style.setProperty("--article-line", String(state.typography.lineHeight));
+    article.style.setProperty("--article-width", `${state.typography.width}px`);
+  }
+  updateTypographyLabels();
+  document.querySelector("#theme-toggle")?.setAttribute("aria-pressed", String(state.theme === "night"));
+  document.querySelector("#focus-toggle")?.setAttribute("aria-pressed", String(state.focusMode));
+}
+
+function updateTypographyLabels() {
+  const sizeLabel = state.typography.size <= 19 ? "Small" : state.typography.size >= 24 ? "Large" : "Medium";
+  const widthPercent = Math.round(((state.typography.width - 640) / (880 - 640)) * 60 + 40);
+  const sizeValue = document.querySelector("#type-size-value");
+  const lineValue = document.querySelector("#type-line-value");
+  const widthValue = document.querySelector("#type-width-value");
+  if (sizeValue) sizeValue.textContent = sizeLabel;
+  if (lineValue) lineValue.textContent = `${state.typography.lineHeight.toFixed(2).replace(/0$/, "")}×`;
+  if (widthValue) widthValue.textContent = `${widthPercent}%`;
+}
+
+function toggleTheme() {
+  state.theme = state.theme === "night" ? "paper" : "night";
+  applyReaderPreferences();
+}
+
+function toggleFocusMode() {
+  state.focusMode = !state.focusMode;
+  applyReaderPreferences();
+  updateReadingProgress();
+}
+
+function toggleListenMode() {
+  const articleText = document.querySelector("#article")?.textContent?.trim();
+  if (!articleText || !window.speechSynthesis) {
+    showReaderToast("Listen is unavailable in this browser");
+    return;
+  }
+  if (state.listening) {
+    window.speechSynthesis.cancel();
+    state.listening = false;
+  } else {
+    const utterance = new SpeechSynthesisUtterance(articleText.slice(0, 12000));
+    utterance.rate = 0.94;
+    utterance.onend = () => {
+      state.listening = false;
+      document.querySelector("#listen-toggle")?.classList.remove("is-active");
+      document.querySelector("#listen-toggle")?.setAttribute("aria-pressed", "false");
+    };
+    window.speechSynthesis.speak(utterance);
+    state.listening = true;
+  }
+  document.querySelector("#listen-toggle")?.classList.toggle("is-active", state.listening);
+  document.querySelector("#listen-toggle")?.setAttribute("aria-pressed", String(state.listening));
+}
+
+function handleHighlightTool() {
+  if (state.selectionAnchor) {
+    addAnnotation("green", false);
+    return;
+  }
+  showReaderToast("Select text in the article to highlight it");
+  document.querySelector("#article")?.focus();
+}
+
+function showReaderToast(message) {
+  const toast = document.querySelector("#reader-toast");
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add("is-visible");
+  clearTimeout(showReaderToast.timeout);
+  showReaderToast.timeout = setTimeout(() => toast.classList.remove("is-visible"), 2200);
+}
+
+function estimateReadingMinutes() {
+  const words = (state.article?.text || state.article?.html || "").replace(/<[^>]+>/g, " ").trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(words / 220));
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function bindSelectionPopover() {
@@ -380,6 +623,7 @@ function closeCommentPopover() {
 function closeFloatingCommentOnOutsideClick(event) {
   if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
   if (!event.target.closest?.(".filter-popover, #filter-toggle")) closeFilterPopover();
+  if (!event.target.closest?.(".typography-popover, #typography-toggle")) closeTypographyPopover();
   if (event.target.closest?.(".comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
 }
@@ -736,6 +980,11 @@ function handleGlobalKeydown(event) {
       closeReviewModal();
       return;
     }
+    if (document.querySelector("#typography-popover")?.classList.contains("is-visible")) {
+      event.preventDefault();
+      closeTypographyPopover();
+      return;
+    }
     if (state.drawing.enabled) {
       event.preventDefault();
       setDrawingEnabled(false);
@@ -885,6 +1134,34 @@ function noteWash(color) {
 
 function svg(path, options = {}) {
   return `<svg viewBox="0 0 24 24" width="${options.size || 18}" height="${options.size || 18}" fill="none" stroke="currentColor" stroke-width="${options.stroke || 1.8}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+}
+
+function clockIcon() {
+  return svg('<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>', { size: 17 });
+}
+
+function checkCircleIcon() {
+  return svg('<circle cx="12" cy="12" r="8"/><path d="m8.5 12.2 2.2 2.2 4.8-5"/>', { size: 17 });
+}
+
+function sunIcon() {
+  return svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.9 19.1 1.4-1.4"/><path d="m17.7 6.3 1.4-1.4"/>', { size: 16 });
+}
+
+function moonIcon() {
+  return svg('<path d="M20 14.5A7 7 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>', { size: 16 });
+}
+
+function bookmarkIcon() {
+  return svg('<path d="M6 4h12v17l-6-3.5L6 21V4Z"/>', { size: 20 });
+}
+
+function headphonesIcon() {
+  return svg('<path d="M4 14a8 8 0 0 1 16 0"/><path d="M4 14v4a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2"/><path d="M20 14v4a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2"/>', { size: 18 });
+}
+
+function focusIcon() {
+  return svg('<circle cx="12" cy="12" r="4"/><path d="M4 12h2"/><path d="M18 12h2"/><path d="M12 4v2"/><path d="M12 18v2"/>', { size: 18 });
 }
 
 function bookIcon() {
