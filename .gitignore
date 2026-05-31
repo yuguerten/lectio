@@ -3,3 +3,6 @@ dist/
 .DS_Store
 
 prds
+.env
+.env.local
+.env.*.local

@@ -7,26 +7,33 @@ import {
   updateAnnotation,
   upsertAnnotation
 } from "../core/annotations.js";
-import { generateMarkdownExport } from "../core/exportMarkdown.js";
 import { createAnchorFromSelection, resolveAnchor } from "../core/textAnchor.js";
 import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore } from "../core/localPersistence.js";
-import { renderHighlights, sanitizeArticleHtml } from "./dom.js";
+import { renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
 
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
 const colorLabelMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.label]));
 const DRAWING_COLORS = ["#171717", "#e03131", "#1971c2", "#2f9e44", "#f08c00"];
+const ASSIST_ENDPOINT = resolveAssistEndpoint();
 const state = {
   article: null,
   annotations: [],
   drawings: [],
   filters: { color: "all", type: "all" },
   searchQuery: "",
+  searchMatchCount: 0,
+  searchActiveIndex: 0,
   activeId: null,
   commentOpenId: null,
   selectionAnchor: null,
   theme: "paper",
   focusMode: false,
   listening: false,
+  assist: {
+    selectedText: "",
+    mode: "translate",
+    targetLanguage: "en"
+  },
   toc: [],
   typography: {
     size: 21,
@@ -40,7 +47,11 @@ const state = {
     size: 4,
     activeStroke: null,
     redoStack: []
-  }
+  },
+  overlayHistory: {
+    search: false
+  },
+  suppressOverlayPop: false
 };
 
 const storageAdapter = createChromeStorageAdapter();
@@ -90,14 +101,14 @@ function renderWorkspace() {
         </div>
         <div class="top-actions">
           <span class="reading-time">${clockIcon()} ${estimateReadingMinutes()} min read</span>
-          <button id="search-toggle" class="toolbar-button search-toggle" type="button" title="Search article" aria-label="Search article">${searchIcon()}</button>
-          <button id="filter-toggle" class="toolbar-button filter-toggle" type="button" title="Filter annotations" aria-label="Filter annotations">${filterIcon()}<span class="filter-indicator" aria-hidden="true"></span></button>
-          <button id="draw-toggle" class="toolbar-button" type="button" aria-pressed="false" title="Draw on page" aria-label="Draw on page">${drawIcon()}</button>
+          <button id="search-toggle" class="toolbar-button search-toggle" type="button" title="Search article (/)" aria-label="Search article">${searchIcon()}<kbd class="shortcut-badge" aria-hidden="true">/</kbd></button>
+          <button id="filter-toggle" class="toolbar-button filter-toggle" type="button" title="Filter annotations (F)" aria-label="Filter annotations">${filterIcon()}<kbd class="shortcut-badge" aria-hidden="true">F</kbd><span class="filter-indicator" aria-hidden="true"></span></button>
+          <button id="draw-toggle" class="toolbar-button" type="button" aria-pressed="false" title="Draw on page (D)" aria-label="Draw on page">${drawIcon()}<kbd class="shortcut-badge" aria-hidden="true">D</kbd></button>
           <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false"><span>${sunIcon()}</span><span>${moonIcon()}</span></button>
           <button id="typography-toggle" class="text-button" type="button" title="Typography settings" aria-label="Typography settings">Aa</button>
           <a id="source-open" class="toolbar-button source-button" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer" title="Open source page" aria-label="Open source page">${externalIcon()}</a>
-          <button id="export-md" class="toolbar-button export-button" type="button" title="Export Markdown" aria-label="Export Markdown">${downloadIcon()}</button>
-          <button id="bookmark-top" class="bookmark-button" type="button" title="Bookmark" aria-label="Bookmark article">${bookmarkIcon()}</button>
+          <button id="export-pdf" class="toolbar-button export-button" type="button" title="Export PDF" aria-label="Export PDF">${downloadIcon()}</button>
+          <button id="bookmark-top" class="bookmark-button" type="button" title="Bookmark article (B)" aria-label="Bookmark article">${bookmarkIcon()}<kbd class="shortcut-badge" aria-hidden="true">B</kbd></button>
         </div>
         <div class="top-progress" aria-hidden="true"><span id="top-progress-bar"></span></div>
       </header>
@@ -119,6 +130,7 @@ function renderWorkspace() {
         <label class="search-box">
           ${searchIcon()}
           <input id="article-search" type="search" placeholder="Search article" autocomplete="off" />
+          <span id="search-count" class="search-count" aria-live="polite"></span>
           <kbd>/</kbd>
         </label>
       </div>
@@ -167,23 +179,24 @@ function renderWorkspace() {
           <article id="article" class="article" tabindex="-1"></article>
           <canvas id="drawing-canvas" class="drawing-canvas" aria-label="Drawing layer"></canvas>
         </section>
+        <section id="print-notes" class="print-notes" aria-hidden="true"></section>
       </div>
 
       <nav class="reader-tools" aria-label="Reader tools">
-        <button id="highlight-tool" class="reader-tool is-primary" type="button" title="Highlight selected text">${highlightIcon()}<span>Highlight</span></button>
-        <button id="review-open" class="reader-tool" type="button" title="Review notes">${noteIcon()}<span>Notes</span></button>
-        <button id="listen-toggle" class="reader-tool" type="button" title="Listen" aria-pressed="false">${headphonesIcon()}<span>Listen</span></button>
-        <button id="bookmark-tool" class="reader-tool" type="button" title="Bookmark article">${bookmarkIcon()}<span>Bookmark</span></button>
+        <button id="highlight-tool" class="reader-tool is-primary" type="button" title="Highlight selected text (H)">${highlightIcon()}<span>Highlight</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">H</kbd></button>
+        <button id="review-open" class="reader-tool" type="button" title="Review notes (N)">${noteIcon()}<span>Notes</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">N</kbd></button>
+        <button id="listen-toggle" class="reader-tool" type="button" title="Listen (L)" aria-pressed="false">${headphonesIcon()}<span>Listen</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">L</kbd></button>
+        <button id="bookmark-tool" class="reader-tool" type="button" title="Bookmark article (B)">${bookmarkIcon()}<span>Bookmark</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">B</kbd></button>
         <button id="focus-toggle" class="reader-tool" type="button" title="Focus mode" aria-pressed="false">${focusIcon()}<span>Focus</span></button>
       </nav>
 
       <div id="drawing-tools" class="drawing-tools" aria-label="Drawing tools">
-        <button class="icon-tool is-active" type="button" data-tool="pen" title="Pen">${penIcon()}</button>
-        <button class="icon-tool" type="button" data-tool="line" title="Line">${lineIcon()}</button>
-        <button class="icon-tool" type="button" data-tool="arrow" title="Arrow">${arrowIcon()}</button>
-        <button class="icon-tool" type="button" data-tool="rect" title="Rectangle">${rectangleIcon()}</button>
-        <button class="icon-tool" type="button" data-tool="ellipse" title="Ellipse">${ellipseIcon()}</button>
-        <button class="icon-tool" type="button" data-tool="eraser" title="Eraser">${eraserIcon()}</button>
+        <button class="icon-tool is-active" type="button" data-tool="pen" title="Pen (P)">${penIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">P</kbd></button>
+        <button class="icon-tool" type="button" data-tool="line" title="Line (X)">${lineIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">X</kbd></button>
+        <button class="icon-tool" type="button" data-tool="arrow" title="Arrow (A)">${arrowIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">A</kbd></button>
+        <button class="icon-tool" type="button" data-tool="rect" title="Rectangle (R)">${rectangleIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">R</kbd></button>
+        <button class="icon-tool" type="button" data-tool="ellipse" title="Ellipse (O)">${ellipseIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">O</kbd></button>
+        <button class="icon-tool" type="button" data-tool="eraser" title="Eraser (E)">${eraserIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">E</kbd></button>
         <div class="drawing-swatches" aria-label="Drawing color">
           ${DRAWING_COLORS.map((color) => `<button class="drawing-swatch" type="button" data-color="${color}" title="${color}" style="background:${color}"></button>`).join("")}
         </div>
@@ -191,19 +204,20 @@ function renderWorkspace() {
           ${brushIcon()}
           <input id="draw-size" type="range" min="2" max="18" value="4" />
         </label>
-        <button id="draw-undo" class="icon-tool" type="button" title="Undo">${undoIcon()}</button>
-        <button id="draw-redo" class="icon-tool" type="button" title="Redo">${redoIcon()}</button>
+        <button id="draw-undo" class="icon-tool" type="button" title="Undo (Ctrl+Z)">${undoIcon()}<kbd class="shortcut-badge draw-shortcut wide" aria-hidden="true">Z</kbd></button>
+        <button id="draw-redo" class="icon-tool" type="button" title="Redo (Ctrl+Y)">${redoIcon()}<kbd class="shortcut-badge draw-shortcut wide" aria-hidden="true">Y</kbd></button>
         <button id="draw-clear" class="icon-tool" type="button" title="Clear drawing">${trashIcon()}</button>
       </div>
       <div id="reader-toast" class="reader-toast" role="status" aria-live="polite"></div>
       <div id="review-modal" class="review-modal" aria-live="polite"></div>
+      <div id="assist-popover" class="assist-popover" aria-live="polite"></div>
       <div id="selection-popover" class="popover" role="toolbar" aria-label="Selection actions"></div>
       <div id="comment-popover" class="comment-popover" aria-live="polite"></div>
     </main>
   `;
 
   document.querySelector("#article-search").value = state.searchQuery;
-  document.querySelector("#search-toggle").addEventListener("click", openSearchPopover);
+  document.querySelector("#search-toggle").addEventListener("click", toggleSearchPopover);
   document.querySelector("#filter-toggle").addEventListener("click", openFilterPopover);
   document.querySelector("#typography-toggle").addEventListener("click", openTypographyPopover);
   document.querySelector("#type-close").addEventListener("click", closeTypographyPopover);
@@ -218,21 +232,23 @@ function renderWorkspace() {
   applyReaderPreferences();
   document.querySelector("#article-search").addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
-    renderArticleAndMargin();
-    event.target.focus();
+    state.searchActiveIndex = 0;
+    renderArticleAndMargin({ focusSearch: true, scrollToSearch: true });
   });
   document.querySelector("#article-search").addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && event.target.value.trim()) {
-      window.find?.(event.target.value.trim(), false, false, true);
+    if (event.key === "Enter" && state.searchMatchCount > 0) {
+      event.preventDefault();
+      moveSearchMatch(event.shiftKey ? -1 : 1);
     }
     if (event.key === "Escape") {
       closeSearchPopover();
     }
   });
   document.addEventListener("keydown", handleGlobalKeydown);
+  window.addEventListener("popstate", handleOverlayPopstate);
   window.addEventListener("scroll", updateReadingProgress, { passive: true });
   window.addEventListener("resize", updateReadingProgress);
-  document.querySelector("#export-md").addEventListener("click", exportMarkdown);
+  document.querySelector("#export-pdf").addEventListener("click", exportPdf);
   document.querySelector("#review-open").addEventListener("click", openReviewModal);
   document.querySelector("#selection-popover").addEventListener("mousedown", (event) => event.preventDefault());
   document.addEventListener("mousedown", closeFloatingCommentOnOutsideClick);
@@ -242,13 +258,13 @@ function renderWorkspace() {
   bindDrawingControls();
 }
 
-function renderArticleAndMargin() {
+function renderArticleAndMargin(options = {}) {
   const articleRoot = document.querySelector("#article");
   articleRoot.innerHTML = sanitizeArticleHtml(state.article.html);
   prepareArticleHeadings(articleRoot);
+  enhanceCodeBlocks(articleRoot);
   const articleText = articleRoot.textContent || "";
   const visible = filterAnnotations(state.annotations, state.filters)
-    .filter(matchesSearch)
     .map((annotation) => ({
       ...annotation,
       resolved: resolveAnchor(articleText, annotation.anchor),
@@ -257,7 +273,12 @@ function renderArticleAndMargin() {
     .filter((annotation) => annotation.resolved);
 
   renderHighlights(articleRoot, visible, activateAnnotation);
+  state.searchMatchCount = renderSearchHighlights(articleRoot, state.searchQuery);
+  if (state.searchActiveIndex >= state.searchMatchCount) state.searchActiveIndex = Math.max(0, state.searchMatchCount - 1);
+  markSearchActive();
+  updateSearchCount();
   renderTableOfContents();
+  renderPrintNotes();
   markActive();
   for (const image of articleRoot.querySelectorAll("img")) {
     image.addEventListener("load", resizeDrawingCanvas, { once: true });
@@ -265,10 +286,45 @@ function renderArticleAndMargin() {
   requestAnimationFrame(() => {
     resizeDrawingCanvas();
     updateReadingProgress();
+    if (options.scrollToSearch) scrollToSearchMatch();
+    if (options.focusSearch) document.querySelector("#article-search")?.focus();
+  });
+}
+
+function updateSearchCount() {
+  const count = document.querySelector("#search-count");
+  if (!count) return;
+  if (!state.searchQuery.trim()) {
+    count.textContent = "";
+    return;
+  }
+  count.textContent = state.searchMatchCount ? `${state.searchActiveIndex + 1}/${state.searchMatchCount}` : "0/0";
+}
+
+function markSearchActive() {
+  document.querySelectorAll(".search-hit").forEach((hit, index) => {
+    hit.classList.toggle("is-active", index === state.searchActiveIndex);
+  });
+}
+
+function moveSearchMatch(direction) {
+  if (!state.searchMatchCount) return;
+  state.searchActiveIndex = (state.searchActiveIndex + direction + state.searchMatchCount) % state.searchMatchCount;
+  markSearchActive();
+  updateSearchCount();
+  scrollToSearchMatch();
+}
+
+function scrollToSearchMatch() {
+  if (!state.searchQuery.trim() || !state.searchMatchCount) return;
+  document.querySelector(`.search-hit[data-search-index="${state.searchActiveIndex}"]`)?.scrollIntoView({
+    behavior: "smooth",
+    block: "center"
   });
 }
 
 function prepareArticleHeadings(articleRoot) {
+  markArticleMetadata(articleRoot);
   const headings = [...articleRoot.querySelectorAll("h2, h3")];
   const fallback = headings.length ? headings : [...articleRoot.querySelectorAll("h1, h2")];
   state.toc = fallback.slice(0, 12).map((heading, index) => {
@@ -279,6 +335,13 @@ function prepareArticleHeadings(articleRoot) {
       level: heading.tagName.toLowerCase(),
       index
     };
+  });
+}
+
+function markArticleMetadata(articleRoot) {
+  articleRoot.querySelectorAll("p").forEach((paragraph) => {
+    const text = (paragraph.textContent || "").trim();
+    paragraph.classList.toggle("article-meta", /^Author:/i.test(text));
   });
 }
 
@@ -424,6 +487,16 @@ function handleHighlightTool() {
   document.querySelector("#article")?.focus();
 }
 
+function handleReaderAssistTool(mode) {
+  const selectedText = getSelectedArticleText();
+  if (!selectedText) {
+    showReaderToast("Select text in the article first");
+    document.querySelector("#article")?.focus();
+    return;
+  }
+  openAssistPopover(mode, selectedText);
+}
+
 function showReaderToast(message) {
   const toast = document.querySelector("#reader-toast");
   if (!toast) return;
@@ -440,6 +513,226 @@ function estimateReadingMinutes() {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+
+function getSelectedArticleText() {
+  const articleRoot = document.querySelector("#article");
+  const selection = window.getSelection();
+  const anchor = createAnchorFromSelection(articleRoot, selection);
+  if (anchor?.exact?.trim()) {
+    state.selectionAnchor = anchor;
+    return anchor.exact.trim();
+  }
+  return state.selectionAnchor?.exact?.trim() || "";
+}
+
+function resolveAssistEndpoint() {
+  const configured = import.meta.env.VITE_OPENREAD_ASSIST_ENDPOINT || "/api/assist";
+  if (window.location.protocol === "chrome-extension:" && configured.startsWith("/")) {
+    return `http://127.0.0.1:8787${configured}`;
+  }
+  return configured;
+}
+
+function openAssistPopover(mode, text) {
+  const cleanText = text.trim();
+  if (!cleanText) return;
+  state.assist.mode = mode;
+  state.assist.selectedText = cleanText;
+  document.querySelector("#selection-popover")?.classList.remove("is-visible");
+  closeSearchPopover();
+  closeFilterPopover();
+  closeTypographyPopover();
+  closeCommentPopover();
+  renderAssistPopover();
+}
+
+function renderAssistPopover(content = "", options = {}) {
+  const popover = document.querySelector("#assist-popover");
+  if (!popover) return;
+  const selectedText = state.assist.selectedText;
+  const mode = state.assist.mode;
+  const prompt = buildExplainPrompt(selectedText);
+  popover.innerHTML = `
+    <section class="assist-card" role="dialog" aria-label="${mode === "translate" ? "Translate selection" : "Explain selection"}">
+      <header class="assist-header">
+        <div>
+          <strong>${mode === "translate" ? "Translate" : "Explain"}</strong>
+          <span>${escapeHtml(shortQuote(selectedText))}</span>
+        </div>
+        <button type="button" data-action="close" title="Close">${xIcon()}</button>
+      </header>
+      <div class="assist-tabs" role="tablist">
+        <button type="button" class="${mode === "translate" ? "is-active" : ""}" data-mode="translate">${translateIcon()}<span>Translate</span></button>
+        <button type="button" class="${mode === "explain" ? "is-active" : ""}" data-mode="explain">${sparkIcon()}<span>Explain</span></button>
+      </div>
+      ${mode === "translate" ? translateAssistTemplate(content, options) : explainAssistTemplate(prompt, content, options)}
+    </section>
+  `;
+  popover.classList.add("is-visible");
+  popover.querySelector('[data-action="close"]').addEventListener("click", closeAssistPopover);
+  popover.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.assist.mode = button.dataset.mode;
+      renderAssistPopover();
+    });
+  });
+  popover.querySelector("[data-target-language]")?.addEventListener("change", (event) => {
+    state.assist.targetLanguage = event.target.value;
+    renderAssistPopover();
+  });
+  popover.querySelector("[data-action='copy-selected']")?.addEventListener("click", () => copyText(selectedText, "Selected text copied"));
+  popover.querySelector("[data-action='copy-prompt']")?.addEventListener("click", () => copyText(prompt, "Explanation prompt copied"));
+  popover.querySelector("[data-action='copy-result']")?.addEventListener("click", () => copyText(content, "Result copied"));
+  popover.querySelector("[data-action='translate-inline']")?.addEventListener("click", translateSelectionInline);
+  popover.querySelector("[data-action='explain-inline']")?.addEventListener("click", explainSelectionInline);
+}
+
+function translateAssistTemplate(content, options = {}) {
+  return `
+    <div class="assist-body">
+      <label class="assist-field">
+        <span>Target language</span>
+        <select data-target-language>
+          ${[
+            ["en", "English"],
+            ["fr", "French"],
+            ["es", "Spanish"],
+            ["de", "German"],
+            ["ar", "Arabic"],
+            ["zh-CN", "Chinese"],
+            ["ja", "Japanese"]
+          ]
+            .map(([value, label]) => `<option value="${value}" ${state.assist.targetLanguage === value ? "selected" : ""}>${label}</option>`)
+            .join("")}
+        </select>
+      </label>
+      ${content ? `<div class="assist-result ${options.error ? "is-error" : ""}">${escapeHtml(content)}</div>` : `<p class="assist-hint">Translate selected text with OpenAI.</p>`}
+      <div class="assist-actions">
+        <button type="button" data-action="translate-inline">${translateIcon()}<span>Translate</span></button>
+        ${content ? `<button type="button" data-action="copy-result">${copyIcon()}<span>Copy result</span></button>` : ""}
+        <button type="button" data-action="copy-selected">${copyIcon()}<span>Copy text</span></button>
+      </div>
+    </div>
+  `;
+}
+
+function explainAssistTemplate(prompt, content, options = {}) {
+  return `
+    <div class="assist-body">
+      ${content ? `<div class="assist-result ${options.error ? "is-error" : ""}">${escapeHtml(content)}</div>` : `<p class="assist-hint">Explain selected text with OpenAI.</p>`}
+      <div class="assist-actions">
+        <button type="button" data-action="explain-inline">${sparkIcon()}<span>Explain</span></button>
+        ${content ? `<button type="button" data-action="copy-result">${copyIcon()}<span>Copy result</span></button>` : ""}
+        <button type="button" data-action="copy-prompt">${copyIcon()}<span>Copy prompt</span></button>
+      </div>
+    </div>
+  `;
+}
+
+async function translateSelectionInline() {
+  await requestAssist("translate");
+}
+
+async function explainSelectionInline() {
+  await requestAssist("explain");
+}
+
+async function requestAssist(mode) {
+  try {
+    renderAssistPopover(mode === "translate" ? "Translating..." : "Explaining...");
+    const response = await fetch(ASSIST_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode,
+        text: state.assist.selectedText,
+        targetLanguage: languageLabel(state.assist.targetLanguage)
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Assist request failed");
+    renderAssistPopover(payload.text || "");
+  } catch (error) {
+    renderAssistPopover(error.message || "Assist request failed", { error: true });
+    showReaderToast(error.message || "Assist request failed");
+  }
+}
+
+function languageLabel(value) {
+  return (
+    {
+      en: "English",
+      fr: "French",
+      es: "Spanish",
+      de: "German",
+      ar: "Arabic",
+      "zh-CN": "Chinese",
+      ja: "Japanese"
+    }[value] || value || "English"
+  );
+}
+
+function buildExplainPrompt(text) {
+  return `Explain this selected text clearly and briefly. Define important terms, preserve technical accuracy, and include a tiny example if useful:\n\n${text}`;
+}
+
+async function copyText(text, message) {
+  await navigator.clipboard?.writeText(text);
+  showReaderToast(message);
+}
+
+function closeAssistPopover() {
+  document.querySelector("#assist-popover")?.classList.remove("is-visible");
+}
+
+function enhanceCodeBlocks(articleRoot) {
+  const codeCandidates = [...articleRoot.querySelectorAll("pre")];
+  articleRoot.querySelectorAll("code:not(pre code)").forEach((code) => {
+    const text = code.textContent || "";
+    if (text.includes("\n") || text.length > 96) codeCandidates.push(code);
+  });
+  articleRoot.querySelectorAll("p").forEach((paragraph) => {
+    const text = paragraph.textContent || "";
+    const hasLongCodeShape = text.length > 48 && /[{};=<>]|\b(function|const|let|var|class|import|return|SELECT|FROM)\b/.test(text);
+    if (hasLongCodeShape && text.split(/\s+/).length < 80) codeCandidates.push(paragraph);
+  });
+
+  const seen = new Set();
+  codeCandidates.forEach((element, index) => {
+    const block = element.closest("pre") || element;
+    if (seen.has(block) || block.closest(".code-card")) return;
+    seen.add(block);
+    const rawCode = block.textContent.trim();
+    if (!rawCode) return;
+    const language = detectCodeLanguage(block, rawCode);
+    const wrapper = document.createElement("figure");
+    wrapper.className = "code-card";
+    wrapper.dataset.language = language;
+    const header = document.createElement("figcaption");
+    header.dataset.language = language;
+    header.innerHTML = `<button type="button" class="copy-code" title="Copy code" aria-label="Copy code">${copyIcon()}</button>`;
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.textContent = rawCode;
+    pre.append(code);
+    wrapper.append(header, pre);
+    block.replaceWith(wrapper);
+    wrapper.querySelector("button").addEventListener("click", () => copyText(rawCode, "Code copied"));
+  });
+}
+
+function detectCodeLanguage(element, code) {
+  const className = `${element.className || ""} ${element.querySelector?.("code")?.className || ""}`;
+  const match = className.match(/language-([\w-]+)|lang-([\w-]+)/i);
+  if (match) return (match[1] || match[2]).replace("js", "JavaScript");
+  if (/^\s*</.test(code) && /<\/?[a-z][\s\S]*>/i.test(code)) return "HTML";
+  if (/\b(import|export|const|let|function|=>|console\.)\b/.test(code)) return "JavaScript";
+  if (/\b(def|import|from|print)\b.*:/.test(code)) return "Python";
+  if (/\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE)\b/i.test(code)) return "SQL";
+  if (/\{[\s\S]*:[\s\S]*\}/.test(code)) return "Code";
+  return "Code";
 }
 
 function bindSelectionPopover() {
@@ -464,17 +757,24 @@ function bindSelectionPopover() {
         )
         .join("")}
       <span class="popover-divider" aria-hidden="true"></span>
-      <button class="note-action" type="button" data-note="true">${noteIcon()} Add note</button>
+      <button class="selection-action" type="button" data-assist="translate" title="Translate selected text">${translateIcon()}<span>Translate</span></button>
+      <button class="selection-action" type="button" data-assist="explain" title="Explain selected text">${sparkIcon()}<span>Explain</span></button>
+      <button class="selection-action is-primary" type="button" data-note="true" title="Add note">${noteIcon()}<span>Note</span></button>
     `;
 
     for (const button of popover.querySelectorAll("[data-color]")) {
       button.addEventListener("click", () => addAnnotation(button.dataset.color, false));
     }
     popover.querySelector("[data-note]").addEventListener("click", () => addAnnotation("yellow", true));
+    popover.querySelectorAll("[data-assist]").forEach((button) => {
+      button.addEventListener("click", () => openAssistPopover(button.dataset.assist, anchor.exact));
+    });
 
     const rect = selection.getRangeAt(0).getBoundingClientRect();
-    popover.style.left = `${Math.max(16, rect.left + rect.width / 2 - 165)}px`;
+    const popoverWidth = Math.min(520, window.innerWidth - 28);
+    popover.style.left = `${clamp(rect.left + rect.width / 2 - popoverWidth / 2, 14, window.innerWidth - popoverWidth - 14)}px`;
     popover.style.top = `${Math.max(72, rect.top - 58)}px`;
+    popover.style.width = `${popoverWidth}px`;
     popover.classList.add("is-visible");
   });
 }
@@ -624,8 +924,18 @@ function closeFloatingCommentOnOutsideClick(event) {
   if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
   if (!event.target.closest?.(".filter-popover, #filter-toggle")) closeFilterPopover();
   if (!event.target.closest?.(".typography-popover, #typography-toggle")) closeTypographyPopover();
-  if (event.target.closest?.(".comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
+  if (event.target.closest?.(".assist-popover, .comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
+  closeAssistPopover();
+}
+
+function toggleSearchPopover() {
+  const popover = document.querySelector("#search-popover");
+  if (popover?.classList.contains("is-visible")) {
+    closeSearchPopover();
+  } else {
+    openSearchPopover();
+  }
 }
 
 function openSearchPopover() {
@@ -633,12 +943,34 @@ function openSearchPopover() {
   document.querySelector("#selection-popover")?.classList.remove("is-visible");
   closeFilterPopover();
   closeCommentPopover();
+  if (!popover?.classList.contains("is-visible")) pushOverlayHistory("search");
   popover?.classList.add("is-visible");
   requestAnimationFrame(() => document.querySelector("#article-search")?.focus());
 }
 
-function closeSearchPopover() {
+function closeSearchPopover(options = {}) {
   document.querySelector("#search-popover")?.classList.remove("is-visible");
+  if (state.overlayHistory.search && !options.fromHistory) {
+    state.suppressOverlayPop = true;
+    history.back();
+  }
+  state.overlayHistory.search = false;
+}
+
+function pushOverlayHistory(name) {
+  if (state.overlayHistory[name]) return;
+  history.pushState({ openreadOverlay: name }, "", window.location.href);
+  state.overlayHistory[name] = true;
+}
+
+function handleOverlayPopstate() {
+  if (state.suppressOverlayPop) {
+    state.suppressOverlayPop = false;
+    return;
+  }
+  if (document.querySelector("#search-popover")?.classList.contains("is-visible")) {
+    closeSearchPopover({ fromHistory: true });
+  }
 }
 
 function openFilterPopover() {
@@ -721,6 +1053,7 @@ function bindDrawingControls() {
   canvas.addEventListener("pointermove", continueDrawing);
   canvas.addEventListener("pointerup", finishDrawing);
   canvas.addEventListener("pointercancel", cancelDrawing);
+  canvas.addEventListener("dblclick", deleteDrawingAtPoint);
   window.addEventListener("resize", resizeDrawingCanvas);
   updateDrawingControls();
   resizeDrawingCanvas();
@@ -852,10 +1185,11 @@ function drawArrowHead(context, x1, y1, x2, y2, size) {
   context.stroke();
 }
 
-function startDrawing(event) {
+async function startDrawing(event) {
   if (!state.drawing.enabled) return;
   event.preventDefault();
   const canvas = event.currentTarget;
+  if (state.drawing.tool === "eraser" && (await removeDrawingAtPoint(pointFromEvent(event, canvas), canvas))) return;
   canvas.setPointerCapture(event.pointerId);
   state.drawing.activeStroke = {
     id: crypto.randomUUID?.() || `stroke_${Date.now()}`,
@@ -906,6 +1240,65 @@ function pointFromEvent(event, canvas) {
   };
 }
 
+async function deleteDrawingAtPoint(event) {
+  if (!state.drawing.enabled) return;
+  event.preventDefault();
+  await removeDrawingAtPoint(pointFromEvent(event, event.currentTarget), event.currentTarget);
+}
+
+async function removeDrawingAtPoint(point, canvas) {
+  const index = findDrawingAtPoint(point, canvas);
+  if (index === -1) return false;
+  const removed = state.drawings[index];
+  state.drawings = state.drawings.filter((_, itemIndex) => itemIndex !== index);
+  state.drawing.redoStack = [removed, ...state.drawing.redoStack];
+  redrawDrawingCanvas();
+  await saveDrawings();
+  return true;
+}
+
+function findDrawingAtPoint(point, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const tolerance = Math.max(10, state.drawing.size * 2.5);
+  for (let index = state.drawings.length - 1; index >= 0; index -= 1) {
+    if (strokeContainsPoint(state.drawings[index], point, rect.width, rect.height, tolerance)) return index;
+  }
+  return -1;
+}
+
+function strokeContainsPoint(stroke, point, width, height, tolerance) {
+  const points = stroke.points || [];
+  if (!points.length) return false;
+  const target = { x: point.x * width, y: point.y * height };
+  const scaled = points.map((item) => ({ x: item.x * width, y: item.y * height }));
+
+  if (["rect", "ellipse"].includes(stroke.tool) && scaled.length > 1) {
+    const start = scaled[0];
+    const end = scaled.at(-1);
+    const left = Math.min(start.x, end.x) - tolerance;
+    const right = Math.max(start.x, end.x) + tolerance;
+    const top = Math.min(start.y, end.y) - tolerance;
+    const bottom = Math.max(start.y, end.y) + tolerance;
+    return target.x >= left && target.x <= right && target.y >= top && target.y <= bottom;
+  }
+
+  if (scaled.length === 1) return Math.hypot(target.x - scaled[0].x, target.y - scaled[0].y) <= tolerance;
+  for (let index = 1; index < scaled.length; index += 1) {
+    if (distanceToSegment(target, scaled[index - 1], scaled[index]) <= tolerance) return true;
+  }
+  return false;
+}
+
+function distanceToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+  const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy), 0, 1);
+  const x = start.x + t * dx;
+  const y = start.y + t * dy;
+  return Math.hypot(point.x - x, point.y - y);
+}
+
 async function undoDrawing() {
   if (state.drawings.length === 0) return;
   const removed = state.drawings.at(-1);
@@ -936,19 +1329,55 @@ async function saveDrawings() {
   await drawingStore.save(state.article.id, state.drawings);
 }
 
-function exportMarkdown() {
-  const drawingImage = createDrawingExportImage();
-  const markdown = generateMarkdownExport(state.article, state.annotations, { drawingImage, drawings: state.drawings });
-  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${slugify(state.article.title)}-annotations.md`;
-  link.click();
-  URL.revokeObjectURL(url);
+function exportPdf() {
+  closeSearchPopover();
+  closeFilterPopover();
+  closeTypographyPopover();
+  closeCommentPopover();
+  closeAssistPopover();
+  closeReviewModal();
+  cancelDrawing();
+  renderPrintNotes();
+  resizeDrawingCanvas();
+  document.title = (state.article.title || "OpenRead") + " - annotated";
+  requestAnimationFrame(() => window.print());
+}
+
+function renderPrintNotes() {
+  const root = document.querySelector("#print-notes");
+  if (!root) return;
+  const notes = state.annotations
+    .filter((annotation) => annotation.type === "note" || annotation.note?.trim())
+    .sort((a, b) => a.anchor.startOffset - b.anchor.startOffset);
+  const drawingSummary = state.drawings.length
+    ? `<p class="print-drawing-summary">${state.drawings.length} drawing mark${state.drawings.length === 1 ? "" : "s"} appear on the article pages.</p>`
+    : "";
+
+  if (!notes.length && !drawingSummary) {
+    root.innerHTML = "";
+    return;
+  }
+
+  root.innerHTML = `
+    <h2>Notes</h2>
+    ${drawingSummary}
+    ${notes
+      .map(
+        (annotation, index) => `
+          <article class="print-note">
+            <h3>Note ${index + 1}</h3>
+            <blockquote>${escapeHtml(shortQuote(annotation.anchor.exact))}</blockquote>
+            ${annotation.note?.trim() ? `<p>${escapeHtml(annotation.note.trim())}</p>` : ""}
+          </article>
+        `
+      )
+      .join("")}
+  `;
 }
 
 function handleGlobalKeydown(event) {
+  const key = event.key.toLowerCase();
+  const typing = isTypingTarget(event.target);
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openSearchPopover();
@@ -959,10 +1388,62 @@ function handleGlobalKeydown(event) {
     openSearchPopover();
     return;
   }
-  if (event.key.toLowerCase() === "d" && !event.metaKey && !event.ctrlKey && !event.altKey && !isTypingTarget(event.target)) {
+  if (key === "d" && !event.metaKey && !event.ctrlKey && !event.altKey && !typing) {
     event.preventDefault();
     setDrawingEnabled(!state.drawing.enabled);
     return;
+  }
+  if (state.drawing.enabled && !typing && (event.metaKey || event.ctrlKey) && key === "z") {
+    event.preventDefault();
+    if (event.shiftKey) redoDrawing();
+    else undoDrawing();
+    return;
+  }
+  if (state.drawing.enabled && !typing && (event.metaKey || event.ctrlKey) && key === "y") {
+    event.preventDefault();
+    redoDrawing();
+    return;
+  }
+  if (state.drawing.enabled && !typing && (event.key === "Delete" || event.key === "Backspace")) {
+    event.preventDefault();
+    undoDrawing();
+    return;
+  }
+  if (state.drawing.enabled && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    const toolShortcuts = { p: "pen", e: "eraser", r: "rect", o: "ellipse", a: "arrow", x: "line" };
+    if (toolShortcuts[key]) {
+      event.preventDefault();
+      state.drawing.tool = toolShortcuts[key];
+      updateDrawingControls();
+      return;
+    }
+  }
+  if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    if (key === "f") {
+      event.preventDefault();
+      openFilterPopover();
+      return;
+    }
+    if (key === "h") {
+      event.preventDefault();
+      handleHighlightTool();
+      return;
+    }
+    if (key === "n") {
+      event.preventDefault();
+      openReviewModal();
+      return;
+    }
+    if (key === "l") {
+      event.preventDefault();
+      toggleListenMode();
+      return;
+    }
+    if (key === "b") {
+      event.preventDefault();
+      showReaderToast("Article saved to OpenRead");
+      return;
+    }
   }
   if (event.key === "Escape") {
     if (document.querySelector("#search-popover")?.classList.contains("is-visible")) {
@@ -985,6 +1466,11 @@ function handleGlobalKeydown(event) {
       closeTypographyPopover();
       return;
     }
+    if (document.querySelector("#assist-popover")?.classList.contains("is-visible")) {
+      event.preventDefault();
+      closeAssistPopover();
+      return;
+    }
     if (state.drawing.enabled) {
       event.preventDefault();
       setDrawingEnabled(false);
@@ -994,20 +1480,6 @@ function handleGlobalKeydown(event) {
 
 function isTypingTarget(target) {
   return ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName) || target?.isContentEditable;
-}
-
-function createDrawingExportImage() {
-  if (state.drawings.length === 0) return "";
-  const source = document.querySelector("#drawing-canvas");
-  if (!source) return "";
-  const exportCanvas = document.createElement("canvas");
-  exportCanvas.width = source.width;
-  exportCanvas.height = source.height;
-  const context = exportCanvas.getContext("2d");
-  context.fillStyle = "#fffdf8";
-  context.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-  context.drawImage(source, 0, 0);
-  return exportCanvas.toDataURL("image/png");
 }
 
 function openReviewModal() {
@@ -1186,6 +1658,14 @@ function drawIcon() {
 
 function filterIcon() {
   return svg('<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>', { size: 17, stroke: 2 });
+}
+
+function translateIcon() {
+  return svg('<path d="M4 5h8"/><path d="M8 3v2"/><path d="M10 5c-.5 2.8-2.2 5.1-5 7"/><path d="M5.5 8.5c1 1.4 2.3 2.5 4 3.3"/><path d="M13 20l4-9 4 9"/><path d="M14.3 17h5.4"/>', { size: 17 });
+}
+
+function sparkIcon() {
+  return svg('<path d="m12 3 1.4 4.2L18 9l-4.6 1.8L12 15l-1.4-4.2L6 9l4.6-1.8Z"/><path d="m5 14 .8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8Z"/><path d="m19 14 .7 1.7L21 16l-1.3.3L19 18l-.7-1.7L17 16l1.3-.3Z"/>', { size: 17 });
 }
 
 function highlightIcon() {

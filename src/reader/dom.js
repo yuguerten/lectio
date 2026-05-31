@@ -26,6 +26,56 @@ export function renderHighlights(articleRoot, annotations, onActivate) {
   }
 }
 
+export function renderSearchHighlights(articleRoot, query) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery) return 0;
+
+  let matchCount = 0;
+  const needle = normalizedQuery.toLowerCase();
+  const walker = document.createTreeWalker(articleRoot, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || parent.closest("button, textarea, input, select, .comment-marker")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return node.nodeValue.toLowerCase().includes(needle) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const nodes = [];
+  let node = walker.nextNode();
+
+  while (node) {
+    nodes.push(node);
+    node = walker.nextNode();
+  }
+
+  for (const textNode of nodes) {
+    const text = textNode.nodeValue;
+    const lowerText = text.toLowerCase();
+    const ranges = [];
+    let start = lowerText.indexOf(needle);
+    while (start !== -1) {
+      ranges.push([start, start + normalizedQuery.length]);
+      start = lowerText.indexOf(needle, start + Math.max(1, normalizedQuery.length));
+    }
+
+    for (const [rangeStart, rangeEnd] of ranges.reverse()) {
+      const range = document.createRange();
+      range.setStart(textNode, rangeStart);
+      range.setEnd(textNode, rangeEnd);
+      const mark = document.createElement("mark");
+      mark.className = "search-hit";
+      range.surroundContents(mark);
+    }
+    matchCount += ranges.length;
+  }
+
+  [...articleRoot.querySelectorAll(".search-hit")].forEach((mark, index) => {
+    mark.dataset.searchIndex = String(index);
+  });
+  return matchCount;
+}
+
 function collectTextNodes(root) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes = [];

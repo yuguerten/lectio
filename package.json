@@ -6,10 +6,13 @@
   "description": "Interactive study reader browser extension for technical articles.",
   "scripts": {
     "build": "vite build",
+    "serve": "node server.js",
+    "assist:test": "node scripts/test-assist.js",
     "test": "node --test test/**/*.test.js"
   },
   "dependencies": {
-    "@mozilla/readability": "^0.5.0"
+    "@mozilla/readability": "^0.5.0",
+    "openai": "^6.39.1"
   },
   "devDependencies": {
     "vite": "^5.4.11"
