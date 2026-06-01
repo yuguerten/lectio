@@ -6,6 +6,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         landing: "index.html",
+        pricing: "pricing.html",
+        privacy: "privacy.html",
+        terms: "terms.html",
         background: "src/extension/background.js",
         "content-script": "src/extension/content-script.js",
         reader: "reader.html"

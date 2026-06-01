@@ -58,22 +58,29 @@ async function readJsonBody(request) {
 async function serveStatic(request, response) {
   const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
   const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
-  const filePath = normalize(join(DIST_DIR, pathname));
+  const candidates = pathname.includes(".") ? [pathname] : [pathname, `${pathname}.html`];
 
-  if (!filePath.startsWith(DIST_DIR)) {
-    response.statusCode = 403;
-    response.end("Forbidden");
-    return;
+  for (const candidate of candidates) {
+    const filePath = normalize(join(DIST_DIR, candidate));
+
+    if (!filePath.startsWith(DIST_DIR)) {
+      response.statusCode = 403;
+      response.end("Forbidden");
+      return;
+    }
+
+    try {
+      const data = await readFile(filePath);
+      response.setHeader("Content-Type", contentType(filePath));
+      response.end(data);
+      return;
+    } catch {
+      // Try the next clean URL candidate before returning 404.
+    }
   }
 
-  try {
-    const data = await readFile(filePath);
-    response.setHeader("Content-Type", contentType(filePath));
-    response.end(data);
-  } catch {
-    response.statusCode = 404;
-    response.end("Not found");
-  }
+  response.statusCode = 404;
+  response.end("Not found");
 }
 
 function contentType(filePath) {

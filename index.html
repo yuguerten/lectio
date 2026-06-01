@@ -33,7 +33,7 @@
 
         <nav class="nav-links" id="primary-menu" data-nav-menu aria-label="Page sections">
           <a href="#features">Features</a>
-          <a href="#pricing">Pricing</a>
+          <a href="/pricing">Pricing</a>
           <a href="#privacy">Privacy</a>
           <a href="#changelog">Changelog</a>
         </nav>
@@ -73,60 +73,60 @@
               <a class="primary-action" href="https://chrome.google.com/webstore" target="_blank" rel="noreferrer">Add to Chrome - it's free</a>
               <a class="secondary-action" href="#demo">Watch 60s demo</a>
             </div>
-            <div class="trust-bar" aria-label="OpenRead trust signals">
-              <span class="rating" aria-label="4.8 star rating">★ 4.8 rating</span>
-              <span>2,400+ installs</span>
-              <span class="store-badge">Chrome Web Store</span>
-              <span class="store-badge">Firefox Add-ons</span>
-            </div>
+            <p class="setup-note">Local notes stay in your browser. AI tools only use selected text.</p>
           </div>
 
-          <div class="browser-mockup" id="demo" role="img" aria-label="OpenRead extension panel inside a browser window on a technical article">
-            <div class="browser-top">
-              <span class="window-dot red"></span>
-              <span class="window-dot yellow"></span>
-              <span class="window-dot green"></span>
-              <span class="address-bar">engineering.example/articles/clean-code-review</span>
+          <div class="reader-product-shot" id="demo" role="img" aria-label="OpenRead study reader with article, table of contents, reading controls, highlights, and notes">
+            <div class="shot-appbar">
+              <div class="shot-brand">
+                <span class="brand-mark small" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 5.5c2.5 0 4.5.7 6 2.1v11.2c-1.5-1.4-3.5-2.1-6-2.1V5.5Z" />
+                    <path d="M20 5.5c-2.5 0-4.5.7-6 2.1v11.2c1.5-1.4 3.5-2.1 6-2.1V5.5Z" />
+                    <path d="M10 7.6h4" />
+                  </svg>
+                </span>
+                <strong>OpenRead</strong>
+              </div>
+              <span class="shot-divider" aria-hidden="true"></span>
+              <p>Making code reviews easier to follow</p>
+              <div class="shot-actions" aria-hidden="true">
+                <span>8 min</span>
+                <span>/</span>
+                <span>B</span>
+              </div>
             </div>
-            <div class="browser-content">
-              <article class="article-preview">
-                <p class="article-label">Technical Article</p>
+
+            <div class="shot-workspace">
+              <aside class="shot-sidebar" aria-hidden="true">
+                <p>Contents</p>
+                <span class="is-active">Review intent</span>
+                <span>Decision notes</span>
+                <span>Implementation</span>
+                <div class="shot-progress"><i></i><strong>42%</strong><small>Read</small></div>
+              </aside>
+
+              <article class="shot-article">
                 <h2>Making code reviews easier to follow</h2>
-                <p>
-                  A good review explains the reason behind a change. It also keeps comments close to the code, so readers can return later and understand the decision.
-                </p>
-                <p>
-                  <mark>OpenRead saves this highlight</mark> with a note, color, and article link. You can find it again even after closing the tab.
-                </p>
+                <p>A good review explains the reason behind a change and keeps comments close to the code.</p>
+                <p><mark>OpenRead saves this highlight with a note, color, and article link.</mark> You can return later without rebuilding context.</p>
                 <pre><code>const note = {
   text: selectedText,
   source: articleUrl
 };</code></pre>
               </article>
-              <aside class="extension-panel" aria-label="OpenRead tools preview">
-                <div class="panel-header">
-                  <span class="brand-mark small" aria-hidden="true"></span>
-                  <strong>OpenRead</strong>
-                </div>
-                <div class="tool-row active">
-                  <span class="tool-icon purple">ϟ</span>
-                  <div>
-                    <strong>Explain</strong>
-                    <p>Simple summary for this paragraph.</p>
-                  </div>
-                </div>
-                <div class="tool-row">
-                  <span class="tool-icon teal">◆</span>
-                  <div>
-                    <strong>Saved note</strong>
-                    <p>“Check this before team sync.”</p>
-                  </div>
-                </div>
-                <div class="search-box">
-                  <span aria-hidden="true">⌕</span>
-                  <span>Search highlights</span>
-                </div>
+
+              <aside class="shot-tools" aria-label="OpenRead reader tools preview">
+                <button type="button" aria-label="Search"><span>⌕</span><small>/</small></button>
+                <button type="button" aria-label="Highlight" class="is-active"><span>▰</span><small>H</small></button>
+                <button type="button" aria-label="Explain"><span>ϟ</span><small>E</small></button>
+                <button type="button" aria-label="Bookmark"><span>◇</span><small>B</small></button>
               </aside>
+
+              <div class="shot-popover">
+                <strong>Saved note</strong>
+                <p>Check this before team sync.</p>
+              </div>
             </div>
           </div>
         </div>
@@ -193,36 +193,6 @@
         </div>
       </section>
 
-      <section class="social-proof" aria-labelledby="proof-title">
-        <div class="logo-strip">
-          <span>Used by engineers at</span>
-          <strong>GitHub</strong>
-          <strong>Vercel</strong>
-          <strong>Mozilla</strong>
-        </div>
-        <div class="section-heading compact">
-          <p class="eyebrow">Developer feedback</p>
-          <h2 id="proof-title">Less tab switching. More understanding.</h2>
-        </div>
-        <div class="testimonial-grid">
-          <figure class="testimonial">
-            <div class="avatar" aria-hidden="true">AK</div>
-            <blockquote>OpenRead helps me turn long RFCs into notes I can actually find again. The reader feels calm, even on dense pages.</blockquote>
-            <figcaption><strong>Aisha Khan</strong><span>Frontend Engineer, Atlas Labs</span></figcaption>
-          </figure>
-          <figure class="testimonial">
-            <div class="avatar" aria-hidden="true">MT</div>
-            <blockquote>The quick explain action is useful for unfamiliar terms. I use it while reading browser and database posts.</blockquote>
-            <figcaption><strong>Mateo Torres</strong><span>Platform Engineer, Northstar</span></figcaption>
-          </figure>
-          <figure class="testimonial">
-            <div class="avatar" aria-hidden="true">LC</div>
-            <blockquote>Saved highlights stay attached to the article, so I can return later without rebuilding my context.</blockquote>
-            <figcaption><strong>Lin Chen</strong><span>Staff Developer, Cloudlane</span></figcaption>
-          </figure>
-        </div>
-      </section>
-
       <section id="privacy" class="privacy-section" aria-labelledby="privacy-title">
         <div>
           <p class="eyebrow">Private by design</p>
@@ -240,34 +210,38 @@
           </article>
         </div>
       </section>
-
-      <section id="pricing" class="simple-section" aria-labelledby="pricing-title">
-        <p class="eyebrow">Pricing</p>
-        <h2 id="pricing-title">Free to start.</h2>
-        <p>Install the extension and use the core reader, highlights, notes, search, and code tools for free.</p>
-        <div class="pricing-actions">
-          <a class="primary-action" href="https://chrome.google.com/webstore" target="_blank" rel="noreferrer">Add to Chrome - it's free</a>
-        </div>
-      </section>
     </main>
 
     <footer class="site-footer" id="changelog">
-      <div class="footer-inner">
-        <div>
-          <a class="brand footer-brand" href="#top" aria-label="OpenRead home">
-            <span class="brand-mark" aria-hidden="true"></span>
+      <div class="footer-inner footer-columns">
+        <div class="footer-about">
+          <a class="brand footer-brand" href="/" aria-label="OpenRead home">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 5.5c2.5 0 4.5.7 6 2.1v11.2c-1.5-1.4-3.5-2.1-6-2.1V5.5Z" />
+              <path d="M20 5.5c-2.5 0-4.5.7-6 2.1v11.2c1.5-1.4 3.5-2.1 6-2.1V5.5Z" />
+              <path d="M10 7.6h4" />
+            </svg>
+            </span>
             <span>OpenRead</span>
           </a>
-          <p>Private by design - your notes never leave your browser.</p>
+          <p>Technical reading with local notes, highlights, search, translation, and selected-text explanations.</p>
         </div>
-        <nav aria-label="Footer links">
-          <a href="#privacy">Privacy Policy</a>
-          <a href="#terms">Terms</a>
-          <a href="#changelog">Extension changelog</a>
-          <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
+        <nav class="footer-nav" aria-label="Explore">
+          <h2>Explore</h2>
+          <a href="/#features">Overview</a>
+          <a href="/pricing">Pricing</a>
+          <a href="/#privacy">Privacy</a>
+          <a href="/#changelog">Extension changelog</a>
+        </nav>
+        <nav class="footer-nav" aria-label="Legal">
+          <h2>Legal</h2>
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms</a>
           <a href="mailto:support@openread.dev">support@openread.dev</a>
         </nav>
       </div>
+      <p class="footer-copyright">© 2026 OpenRead. All rights reserved.</p>
     </footer>
   </body>
 </html>
