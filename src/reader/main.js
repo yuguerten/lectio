@@ -8,13 +8,14 @@ import {
   upsertAnnotation
 } from "../core/annotations.js";
 import { createAnchorFromSelection, resolveAnchor } from "../core/textAnchor.js";
-import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore } from "../core/localPersistence.js";
+import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore, createRemoteAnnotationStore } from "../core/localPersistence.js";
 import { renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
 
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
 const colorLabelMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.label]));
 const DRAWING_COLORS = ["#171717", "#e03131", "#1971c2", "#2f9e44", "#f08c00"];
 const ASSIST_ENDPOINT = resolveAssistEndpoint();
+const NOTES_ENDPOINT = resolveBackendEndpoint("/api/notes");
 const state = {
   article: null,
   annotations: [],
@@ -51,11 +52,17 @@ const state = {
   overlayHistory: {
     search: false
   },
-  suppressOverlayPop: false
+  suppressOverlayPop: false,
+  auth: {
+    token: "",
+    user: null,
+    mode: "login"
+  }
 };
 
 const storageAdapter = createChromeStorageAdapter();
-const store = createAnnotationStore(storageAdapter);
+const localAnnotationStore = createAnnotationStore(storageAdapter);
+let store = localAnnotationStore;
 const drawingStore = createDrawingStore(storageAdapter);
 const app = document.querySelector("#app");
 
@@ -64,6 +71,9 @@ boot().catch((error) => {
 });
 
 async function boot() {
+  state.auth.token = await loadAuthToken();
+  await refreshCurrentUser();
+  configureAnnotationStore();
   state.article = await loadArticleFromSession();
   if (state.article.error) throw new Error(state.article.error);
   const [annotations, drawings] = await Promise.all([store.load(state.article.id), drawingStore.load(state.article.id)]);
@@ -85,6 +95,7 @@ async function loadArticleFromSession() {
 }
 
 function renderWorkspace() {
+  state.filters = { color: "all", type: "all" };
   app.innerHTML = `
     <main class="workspace theme-paper">
       <header class="appbar">
@@ -95,20 +106,20 @@ function renderWorkspace() {
           </div>
           <div class="appbar-divider" aria-hidden="true"></div>
           <div class="title-block">
-            <h1>${escapeHtml(state.article.title)}</h1>
+            <a class="source-title" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer" title="Open source page">
+              <h1>${escapeHtml(state.article.title)}</h1>
+            </a>
             <span class="saved-status">${checkCircleIcon()} Saved</span>
           </div>
         </div>
         <div class="top-actions">
-          <span class="reading-time">${clockIcon()} ${estimateReadingMinutes()} min read</span>
           <button id="search-toggle" class="toolbar-button search-toggle" type="button" title="Search article (/)" aria-label="Search article">${searchIcon()}<kbd class="shortcut-badge" aria-hidden="true">/</kbd></button>
-          <button id="filter-toggle" class="toolbar-button filter-toggle" type="button" title="Filter annotations (F)" aria-label="Filter annotations">${filterIcon()}<kbd class="shortcut-badge" aria-hidden="true">F</kbd><span class="filter-indicator" aria-hidden="true"></span></button>
           <button id="draw-toggle" class="toolbar-button" type="button" aria-pressed="false" title="Draw on page (D)" aria-label="Draw on page">${drawIcon()}<kbd class="shortcut-badge" aria-hidden="true">D</kbd></button>
           <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false"><span>${sunIcon()}</span><span>${moonIcon()}</span></button>
           <button id="typography-toggle" class="text-button" type="button" title="Typography settings" aria-label="Typography settings">Aa</button>
-          <a id="source-open" class="toolbar-button source-button" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer" title="Open source page" aria-label="Open source page">${externalIcon()}</a>
           <button id="export-pdf" class="toolbar-button export-button" type="button" title="Export PDF" aria-label="Export PDF">${downloadIcon()}</button>
           <button id="bookmark-top" class="bookmark-button" type="button" title="Bookmark article (B)" aria-label="Bookmark article">${bookmarkIcon()}<kbd class="shortcut-badge" aria-hidden="true">B</kbd></button>
+          <button id="account-toggle" class="toolbar-button account-toggle" type="button" title="Account" aria-label="Account">${userIcon()}</button>
         </div>
         <div class="top-progress" aria-hidden="true"><span id="top-progress-bar"></span></div>
       </header>
@@ -116,13 +127,6 @@ function renderWorkspace() {
         <div class="toc-panel">
           <p class="toc-heading">On this page</p>
           <nav id="toc-list" class="toc-list"></nav>
-        </div>
-        <div class="progress-card" aria-label="Reading progress">
-          <div class="progress-ring" style="--progress:0" aria-hidden="true"></div>
-          <div>
-            <strong>Reading progress</strong>
-            <span id="side-progress-sections">0 of 0 sections</span>
-          </div>
         </div>
       </aside>
 
@@ -134,25 +138,7 @@ function renderWorkspace() {
           <kbd>/</kbd>
         </label>
       </div>
-      <div id="filter-popover" class="filter-popover" aria-label="Annotation filters">
-        <section class="filter-panel">
-          <div class="filter-section">
-            <span>Color</span>
-            <div class="filter-swatches">
-              <button class="filter-any" type="button" data-filter-color="all" title="Any color">Any</button>
-              ${HIGHLIGHT_COLORS.map((color) => `<button class="filter-swatch" type="button" data-filter-color="${color.id}" title="${color.label}" style="--swatch-color:${color.value}"></button>`).join("")}
-            </div>
-          </div>
-          <div class="filter-section">
-            <span>Type</span>
-            <div class="filter-types">
-              <button class="filter-type" type="button" data-filter-type="all" title="All annotations">${listIcon()}</button>
-              <button class="filter-type" type="button" data-filter-type="notes" title="Notes">${noteIcon()}</button>
-              <button class="filter-type" type="button" data-filter-type="highlights" title="Highlights">${highlightIcon()}</button>
-            </div>
-          </div>
-        </section>
-      </div>
+      <div id="auth-popover" class="auth-popover" aria-label="Account" role="dialog"></div>
       <div id="typography-popover" class="typography-popover" aria-label="Reading settings" role="dialog">
         <section class="type-panel">
           <header class="settings-header">
@@ -218,7 +204,7 @@ function renderWorkspace() {
 
   document.querySelector("#article-search").value = state.searchQuery;
   document.querySelector("#search-toggle").addEventListener("click", toggleSearchPopover);
-  document.querySelector("#filter-toggle").addEventListener("click", openFilterPopover);
+  document.querySelector("#account-toggle").addEventListener("click", openAuthPopover);
   document.querySelector("#typography-toggle").addEventListener("click", openTypographyPopover);
   document.querySelector("#type-close").addEventListener("click", closeTypographyPopover);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
@@ -227,8 +213,8 @@ function renderWorkspace() {
   document.querySelector("#highlight-tool").addEventListener("click", handleHighlightTool);
   document.querySelector("#bookmark-tool").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
   document.querySelector("#bookmark-top").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
-  bindFilterControls();
   bindTypographyControls();
+  renderAuthPopover();
   applyReaderPreferences();
   document.querySelector("#article-search").addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
@@ -323,11 +309,25 @@ function scrollToSearchMatch() {
   });
 }
 
+const BLOCKED_TOC_HEADINGS = new Set([
+  "sources",
+  "comments",
+  "comment",
+  "references",
+  "related",
+  "recommended",
+  "share",
+  "subscribe",
+  "newsletter",
+  "table of contents"
+]);
+
 function prepareArticleHeadings(articleRoot) {
   markArticleMetadata(articleRoot);
-  const headings = [...articleRoot.querySelectorAll("h2, h3")];
-  const fallback = headings.length ? headings : [...articleRoot.querySelectorAll("h1, h2")];
-  state.toc = fallback.slice(0, 12).map((heading, index) => {
+  const primaryHeadings = [...articleRoot.querySelectorAll("h2, h3")];
+  const fallbackHeadings = primaryHeadings.length ? primaryHeadings : [...articleRoot.querySelectorAll("h1, h2")];
+  const seen = new Set();
+  state.toc = filterArticleTocHeadings(fallbackHeadings, seen).slice(0, 12).map((heading, index) => {
     if (!heading.id) heading.id = `openread-section-${index + 1}`;
     return {
       id: heading.id,
@@ -336,6 +336,38 @@ function prepareArticleHeadings(articleRoot) {
       index
     };
   });
+}
+
+function filterArticleTocHeadings(headings, seen) {
+  const titleVariants = articleTitleVariants();
+  return headings.filter((heading) => {
+    const text = (heading.textContent || "").trim();
+    const normalized = normalizeTocText(text);
+    if (!normalized || BLOCKED_TOC_HEADINGS.has(normalized)) return false;
+    if (titleVariants.has(normalized)) return false;
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+function articleTitleVariants() {
+  const title = state.article?.title || "";
+  const variants = new Set([normalizeTocText(title)]);
+  for (const part of title.split(/[|—-]/)) {
+    const normalized = normalizeTocText(part);
+    if (normalized) variants.add(normalized);
+  }
+  return variants;
+}
+
+function normalizeTocText(text) {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim()
+    .toLowerCase();
 }
 
 function markArticleMetadata(articleRoot) {
@@ -375,17 +407,160 @@ function updateReadingProgress() {
   const progress = clamp((scrollTop - start) / (end - start), 0, 1);
   const percent = Math.round(progress * 100);
   document.querySelector("#top-progress-bar")?.style.setProperty("width", `${percent}%`);
-  document.querySelector(".progress-ring")?.style.setProperty("--progress", percent);
-
   let activeIndex = 0;
   state.toc.forEach((item, index) => {
     const heading = document.getElementById(item.id);
     if (heading && heading.getBoundingClientRect().top <= 150) activeIndex = index;
   });
   document.querySelectorAll(".toc-link").forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
-  const sectionText = state.toc.length ? `${Math.min(activeIndex + 1, state.toc.length)} of ${state.toc.length} sections` : "0 of 0 sections";
-  const sideSections = document.querySelector("#side-progress-sections");
-  if (sideSections) sideSections.textContent = sectionText;
+}
+
+
+function configureAnnotationStore() {
+  store = state.auth.token
+    ? createRemoteAnnotationStore({ endpoint: NOTES_ENDPOINT, getToken: () => state.auth.token })
+    : localAnnotationStore;
+}
+
+async function loadAuthToken() {
+  if (globalThis.chrome?.storage?.local) {
+    const result = await chrome.storage.local.get("openread:authToken");
+    return result["openread:authToken"] || "";
+  }
+  return localStorage.getItem("openread:authToken") || "";
+}
+
+async function saveAuthToken(token) {
+  if (globalThis.chrome?.storage?.local) {
+    if (token) await chrome.storage.local.set({ "openread:authToken": token });
+    else await chrome.storage.local.remove("openread:authToken");
+    return;
+  }
+  if (token) localStorage.setItem("openread:authToken", token);
+  else localStorage.removeItem("openread:authToken");
+}
+
+async function refreshCurrentUser() {
+  if (!state.auth.token) {
+    state.auth.user = null;
+    return;
+  }
+  try {
+    const payload = await apiRequest("/api/me", { token: state.auth.token });
+    state.auth.user = payload.user;
+  } catch {
+    state.auth.token = "";
+    state.auth.user = null;
+    await saveAuthToken("");
+  }
+}
+
+function openAuthPopover() {
+  closeSearchPopover();
+  closeFilterPopover();
+  closeTypographyPopover();
+  closeCommentPopover();
+  renderAuthPopover();
+  document.querySelector("#auth-popover")?.classList.toggle("is-visible");
+}
+
+function closeAuthPopover() {
+  document.querySelector("#auth-popover")?.classList.remove("is-visible");
+}
+
+function renderAuthPopover(message = "") {
+  const popover = document.querySelector("#auth-popover");
+  if (!popover) return;
+  if (state.auth.user) {
+    popover.innerHTML = `
+      <section class="auth-panel">
+        <strong>${escapeHtml(state.auth.user.name || state.auth.user.email)}</strong>
+        <span>${escapeHtml(state.auth.user.email)}</span>
+        <button id="auth-logout" class="auth-submit" type="button">Log out</button>
+      </section>
+    `;
+    popover.querySelector("#auth-logout").addEventListener("click", handleLogout);
+    return;
+  }
+
+  const isRegister = state.auth.mode === "register";
+  popover.innerHTML = `
+    <form class="auth-panel" id="auth-form">
+      <strong>${isRegister ? "Create account" : "Log in"}</strong>
+      ${message ? `<p class="auth-message">${escapeHtml(message)}</p>` : ""}
+      ${isRegister ? `<label><span>Name</span><input name="name" autocomplete="name" /></label>` : ""}
+      <label><span>Email</span><input name="email" type="email" autocomplete="email" required /></label>
+      <label><span>Password</span><input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>
+      <button class="auth-submit" type="submit">${isRegister ? "Create account" : "Log in"}</button>
+      <button class="auth-link" type="button" id="auth-mode-toggle">${isRegister ? "Use existing account" : "Create account"}</button>
+    </form>
+  `;
+  popover.querySelector("#auth-form").addEventListener("submit", handleAuthSubmit);
+  popover.querySelector("#auth-mode-toggle").addEventListener("click", () => {
+    state.auth.mode = isRegister ? "login" : "register";
+    renderAuthPopover();
+  });
+}
+
+async function handleAuthSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const formData = new FormData(form);
+  const path = state.auth.mode === "register" ? "/api/auth/register" : "/api/auth/login";
+  try {
+    const payload = await apiRequest(path, {
+      method: "POST",
+      body: {
+        name: formData.get("name"),
+        email: formData.get("email"),
+        password: formData.get("password")
+      }
+    });
+    state.auth.token = payload.token;
+    state.auth.user = payload.user;
+    await saveAuthToken(payload.token);
+    configureAnnotationStore();
+    state.annotations = state.article ? await store.load(state.article.id) : [];
+    renderAuthPopover();
+    closeAuthPopover();
+    renderArticleAndMargin();
+    showReaderToast("Signed in. Notes are syncing.");
+  } catch (error) {
+    renderAuthPopover(error.message);
+  }
+}
+
+async function handleLogout() {
+  try {
+    await apiRequest("/api/auth/logout", { method: "POST", token: state.auth.token });
+  } catch {
+    // Local logout should still clear a stale token.
+  }
+  state.auth.token = "";
+  state.auth.user = null;
+  await saveAuthToken("");
+  configureAnnotationStore();
+  state.annotations = state.article ? await store.load(state.article.id) : [];
+  renderAuthPopover();
+  closeAuthPopover();
+  renderArticleAndMargin();
+  showReaderToast("Signed out. Notes are local.");
+}
+
+async function apiRequest(path, options = {}) {
+  const endpoint = resolveBackendEndpoint(path);
+  const headers = { ...(options.headers || {}) };
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
+  const response = await fetch(endpoint, {
+    method: options.method || "GET",
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
+  return payload;
 }
 
 function openTypographyPopover() {
@@ -528,11 +703,14 @@ function getSelectedArticleText() {
 }
 
 function resolveAssistEndpoint() {
-  const configured = import.meta.env.VITE_OPENREAD_ASSIST_ENDPOINT || "/api/assist";
-  if (window.location.protocol === "chrome-extension:" && configured.startsWith("/")) {
-    return `http://127.0.0.1:8787${configured}`;
+  return resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_ASSIST_ENDPOINT || "/api/assist");
+}
+
+function resolveBackendEndpoint(path) {
+  if (window.location.protocol === "chrome-extension:" && path.startsWith("/")) {
+    return `http://127.0.0.1:8787${path}`;
   }
-  return configured;
+  return path;
 }
 
 function openAssistPopover(mode, text) {
@@ -696,7 +874,8 @@ function enhanceCodeBlocks(articleRoot) {
   articleRoot.querySelectorAll("p").forEach((paragraph) => {
     const text = paragraph.textContent || "";
     const hasLongCodeShape = text.length > 48 && /[{};=<>]|\b(function|const|let|var|class|import|return|SELECT|FROM)\b/.test(text);
-    if (hasLongCodeShape && text.split(/\s+/).length < 80) codeCandidates.push(paragraph);
+    const hasTerminalShape = isTerminalSnippet(text);
+    if ((hasLongCodeShape || hasTerminalShape) && text.split(/\s+/).length < 96) codeCandidates.push(paragraph);
   });
 
   const seen = new Set();
@@ -708,11 +887,11 @@ function enhanceCodeBlocks(articleRoot) {
     if (!rawCode) return;
     const language = detectCodeLanguage(block, rawCode);
     const wrapper = document.createElement("figure");
-    wrapper.className = "code-card";
+    wrapper.className = language === "Terminal" ? "code-card is-terminal" : "code-card is-code";
     wrapper.dataset.language = language;
     const header = document.createElement("figcaption");
     header.dataset.language = language;
-    header.innerHTML = `<button type="button" class="copy-code" title="Copy code" aria-label="Copy code">${copyIcon()}</button>`;
+    header.innerHTML = `<span class="window-dots" aria-hidden="true"><span></span><span></span><span></span></span><button type="button" class="copy-code" title="Copy code" aria-label="Copy code">${copyIcon()}</button>`;
     const pre = document.createElement("pre");
     const code = document.createElement("code");
     code.textContent = rawCode;
@@ -726,7 +905,8 @@ function enhanceCodeBlocks(articleRoot) {
 function detectCodeLanguage(element, code) {
   const className = `${element.className || ""} ${element.querySelector?.("code")?.className || ""}`;
   const match = className.match(/language-([\w-]+)|lang-([\w-]+)/i);
-  if (match) return (match[1] || match[2]).replace("js", "JavaScript");
+  if (match) return normalizeLanguageLabel(match[1] || match[2]);
+  if (isTerminalSnippet(code)) return "Terminal";
   if (/^\s*</.test(code) && /<\/?[a-z][\s\S]*>/i.test(code)) return "HTML";
   if (/\b(import|export|const|let|function|=>|console\.)\b/.test(code)) return "JavaScript";
   if (/\b(def|import|from|print)\b.*:/.test(code)) return "Python";
@@ -735,6 +915,29 @@ function detectCodeLanguage(element, code) {
   return "Code";
 }
 
+function normalizeLanguageLabel(value) {
+  const normalized = value.toLowerCase();
+  if (["sh", "shell", "bash", "zsh", "terminal", "console", "cmd", "powershell", "ps1"].includes(normalized)) return "Terminal";
+  if (normalized === "js" || normalized === "javascript") return "JavaScript";
+  if (normalized === "ts" || normalized === "typescript") return "TypeScript";
+  if (normalized === "py" || normalized === "python") return "Python";
+  return value.replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function isTerminalSnippet(text) {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length < 8) return false;
+  const lines = trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const joined = lines.join(" ");
+  const flagCount = (joined.match(/(?:^|\s)-{1,2}[a-z][\w-]*(?:[=\s][^\s\\]+)?/gi) || []).length;
+  const hasPrompt = lines.some((line) => /^(?:[$#>]\s+|\w+@[-\w.]+:[^$#>]+[$#]\s+)/.test(line));
+  const hasContinuation = lines.length > 1 && lines.slice(0, -1).some((line) => /\\$/.test(line));
+  const startsWithCommand = /^\s*(?:[\w./-]+(?:\.exe)?)(?:\s|$)/.test(trimmed) && flagCount >= 2;
+  const startsWithFlags = /^\s*-{1,2}[a-z][\w-]*(?:\s|=)/i.test(trimmed) && flagCount >= 2;
+  const hasShellOperators = /\s(?:&&|\|\||\||2>|>)\s/.test(joined);
+  const hasEnvAssignment = /(?:^|\s)[A-Z_][A-Z0-9_]*=[^\s]+\s+\w/.test(joined);
+  return hasPrompt || hasContinuation || startsWithCommand || startsWithFlags || (flagCount >= 3 && (hasShellOperators || hasEnvAssignment));
+}
 function bindSelectionPopover() {
   document.addEventListener("selectionchange", () => {
     if (state.drawing.enabled) return;
@@ -753,7 +956,7 @@ function bindSelectionPopover() {
       ${HIGHLIGHT_COLORS.slice(0, 4)
         .map(
           (color) =>
-            `<button class="swatch" type="button" title="${color.label}" data-color="${color.id}" style="background:${color.value}"></button>`
+            `<button class="swatch" type="button" title="${color.label}" data-color="${color.id}" style="--swatch-color:${color.value}"></button>`
         )
         .join("")}
       <span class="popover-divider" aria-hidden="true"></span>
@@ -871,7 +1074,6 @@ function renderCommentPopover(annotation, target) {
         <span class="note-color"><span aria-hidden="true"></span>${escapeHtml(colorLabelMap.get(color) || color)}</span>
         <button type="button" data-action="close" title="Close comment">${xIcon()}</button>
       </div>
-      <blockquote class="quote">${escapeHtml(shortQuote(annotation.anchor.exact))}</blockquote>
       <textarea class="note-editor floating-editor" data-action="edit" placeholder="Write a comment...">${escapeHtml(annotation.note.trim())}</textarea>
       <div class="note-actions pdf-actions">
         <button type="button" data-action="jump" title="Jump to highlight">${pencilIcon()}</button>
@@ -922,8 +1124,8 @@ function closeCommentPopover() {
 
 function closeFloatingCommentOnOutsideClick(event) {
   if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
-  if (!event.target.closest?.(".filter-popover, #filter-toggle")) closeFilterPopover();
   if (!event.target.closest?.(".typography-popover, #typography-toggle")) closeTypographyPopover();
+  if (!event.target.closest?.(".auth-popover, #account-toggle")) closeAuthPopover();
   if (event.target.closest?.(".assist-popover, .comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
   closeAssistPopover();
@@ -1419,11 +1621,6 @@ function handleGlobalKeydown(event) {
     }
   }
   if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    if (key === "f") {
-      event.preventDefault();
-      openFilterPopover();
-      return;
-    }
     if (key === "h") {
       event.preventDefault();
       handleHighlightTool();
@@ -1449,11 +1646,6 @@ function handleGlobalKeydown(event) {
     if (document.querySelector("#search-popover")?.classList.contains("is-visible")) {
       event.preventDefault();
       closeSearchPopover();
-      return;
-    }
-    if (document.querySelector("#filter-popover")?.classList.contains("is-visible")) {
-      event.preventDefault();
-      closeFilterPopover();
       return;
     }
     if (document.querySelector("#review-modal")?.classList.contains("is-visible")) {
@@ -1726,6 +1918,11 @@ function copyIcon() {
 
 function trashIcon() {
   return svg('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="m10 11 .4 6"/><path d="m14 11-.4 6"/><path d="M6 7l1 14h10l1-14"/>', { size: 16 });
+}
+
+
+function userIcon() {
+  return svg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', { size: 18 });
 }
 
 function xIcon() {

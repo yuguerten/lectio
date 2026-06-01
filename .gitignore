@@ -6,3 +6,5 @@ prds
 .env
 .env.local
 .env.*.local
+
+data/

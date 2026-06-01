@@ -1,9 +1,9 @@
 export const HIGHLIGHT_COLORS = [
-  { id: "yellow", label: "Yellow", value: "#fff8d6" },
-  { id: "orange", label: "Orange", value: "#ffe8cc" },
-  { id: "green", label: "Green", value: "#e4f7e8" },
-  { id: "blue", label: "Blue", value: "#e2f2ff" },
-  { id: "pink", label: "Pink", value: "#ffecec" }
+  { id: "yellow", label: "Yellow", value: "#ffe08a" },
+  { id: "orange", label: "Orange", value: "#ffbd7a" },
+  { id: "green", label: "Green", value: "#8fdda2" },
+  { id: "blue", label: "Blue", value: "#91cfff" },
+  { id: "pink", label: "Pink", value: "#ff9fb0" }
 ];
 
 export function createAnnotation({ anchor, color = "yellow", note = "", createdAt = new Date().toISOString() }) {

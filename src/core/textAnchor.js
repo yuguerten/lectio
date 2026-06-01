@@ -18,19 +18,70 @@ export function createAnchorFromOffsets(articleText, startOffset, endOffset, blo
 export function createAnchorFromSelection(articleRoot, selection) {
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
 
-  const range = selection.getRangeAt(0);
+  const range = normalizeSelectionRange(articleRoot, selection.getRangeAt(0));
   if (!articleRoot.contains(range.commonAncestorContainer)) return null;
 
   const articleText = articleRoot.textContent || "";
-  const selectedText = selection.toString();
-  const selectionRange = range.cloneRange();
+  const selectedText = range.toString();
   const beforeRange = range.cloneRange();
   beforeRange.selectNodeContents(articleRoot);
-  beforeRange.setEnd(selectionRange.startContainer, selectionRange.startOffset);
+  beforeRange.setEnd(range.startContainer, range.startOffset);
 
   const startOffset = beforeRange.toString().length;
   const endOffset = startOffset + selectedText.length;
   return createAnchorFromOffsets(articleText, startOffset, endOffset, findBlockIndex(articleRoot, range));
+}
+
+function normalizeSelectionRange(articleRoot, sourceRange) {
+  const range = sourceRange.cloneRange();
+  trimRangeWhitespace(range);
+  trimAccidentalTrailingBlockFragment(articleRoot, range);
+  trimRangeWhitespace(range);
+  return range;
+}
+
+function trimRangeWhitespace(range) {
+  trimRangeStartWhitespace(range);
+  trimRangeEndWhitespace(range);
+}
+
+function trimRangeStartWhitespace(range) {
+  while (!range.collapsed && range.startContainer.nodeType === Node.TEXT_NODE) {
+    const text = range.startContainer.nodeValue || "";
+    const nextOffset = text.slice(range.startOffset).search(/\S/);
+    if (nextOffset > 0) range.setStart(range.startContainer, range.startOffset + nextOffset);
+    break;
+  }
+}
+
+function trimRangeEndWhitespace(range) {
+  while (!range.collapsed && range.endContainer.nodeType === Node.TEXT_NODE) {
+    const text = range.endContainer.nodeValue || "";
+    const selected = text.slice(0, range.endOffset);
+    const trimmedLength = selected.replace(/\s+$/, "").length;
+    if (trimmedLength < range.endOffset) range.setEnd(range.endContainer, trimmedLength);
+    break;
+  }
+}
+
+function trimAccidentalTrailingBlockFragment(articleRoot, range) {
+  const startBlock = closestTextBlock(articleRoot, range.startContainer);
+  const endBlock = closestTextBlock(articleRoot, range.endContainer);
+  if (!startBlock || !endBlock || startBlock === endBlock) return;
+
+  const endFragmentRange = range.cloneRange();
+  endFragmentRange.selectNodeContents(endBlock);
+  endFragmentRange.setEnd(range.endContainer, range.endOffset);
+  const endFragment = endFragmentRange.toString().trim();
+  if (!endFragment || endFragment.length > 4 || /\s/.test(endFragment)) return;
+
+  range.setEndBefore(endBlock);
+}
+
+function closestTextBlock(articleRoot, node) {
+  const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  const block = element?.closest?.("p, li, pre, blockquote, h1, h2, h3, h4, h5, h6");
+  return block && articleRoot.contains(block) ? block : null;
 }
 
 export function resolveAnchor(articleText, anchor) {

@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { readFile } from "node:fs/promises";
 import assistHandler from "./api/assist.js";
+import { handleBackendApi } from "./api/backend.js";
 
 process.loadEnvFile?.(".env");
 
@@ -11,6 +12,11 @@ const DIST_DIR = normalize(join(process.cwd(), "dist"));
 const server = createServer(async (request, response) => {
   if (request.url?.startsWith("/api/assist")) {
     await handleAssist(request, response);
+    return;
+  }
+
+  if (request.url?.startsWith("/api/")) {
+    await handleBackendApi(request, response);
     return;
   }
 

@@ -17,7 +17,29 @@ export function sanitizeArticleHtml(html) {
     }
   }
 
+  removeUnwantedArticleAsides(template.content);
+
   return template.innerHTML;
+}
+
+const UNWANTED_ARTICLE_TEXT = [
+  "i’ve recieved feedback that some of the previous posts were too high level",
+  "i've recieved feedback that some of the previous posts were too high level",
+  "if you’re a tech worker, or a linux enthusiast",
+  "if you're a tech worker, or a linux enthusiast",
+  "graph layout.",
+  "i’ve tried my best to keep this easy to understand",
+  "i've tried my best to keep this easy to understand",
+  "this part is just plain hard to make explain in a single blog post"
+];
+
+function removeUnwantedArticleAsides(root) {
+  for (const element of [...root.querySelectorAll("p, h1, h2, h3, h4, h5, h6, blockquote")]) {
+    const normalized = (element.textContent || "").trim().toLowerCase();
+    if (UNWANTED_ARTICLE_TEXT.some((phrase) => normalized.includes(phrase))) {
+      element.remove();
+    }
+  }
 }
 
 export function renderHighlights(articleRoot, annotations, onActivate) {
