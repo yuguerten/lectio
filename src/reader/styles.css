@@ -475,6 +475,9 @@ svg {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: var(--article-size, 21px);
   line-height: var(--article-line, 1.75);
+  text-align: justify;
+  text-wrap: pretty;
+  hyphens: auto;
   letter-spacing: 0;
 }
 
@@ -486,6 +489,7 @@ svg {
   color: var(--text-primary);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.18;
+  text-align: start;
   letter-spacing: 0;
 }
 
@@ -549,6 +553,8 @@ svg {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 14px;
   line-height: 1.55;
+  text-align: start;
+  hyphens: none;
 }
 
 .article code {
@@ -1021,6 +1027,7 @@ svg {
   outline-offset: 2px;
   padding: 1px 3px;
   color: #172016;
+  text-align: inherit;
   text-shadow: none;
   transition: box-shadow 160ms ease, filter 160ms ease;
 }
@@ -1035,6 +1042,7 @@ svg {
   border-radius: 4px;
   background: #ffe066;
   color: inherit;
+  text-align: inherit;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   padding: 1px 2px;

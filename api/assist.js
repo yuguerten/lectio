@@ -1,7 +1,5 @@
 import OpenAI from "openai";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const MODEL = process.env.OPENAI_MODEL || "gpt-5.2";
 const MAX_TEXT_LENGTH = 6000;
 
 export default async function handler(request, response) {
@@ -38,8 +36,9 @@ export default async function handler(request, response) {
       return;
     }
 
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const result = await client.responses.create({
-      model: MODEL,
+      model: process.env.OPENAI_MODEL || "gpt-5.2",
       instructions: instructionsFor(mode, targetLanguage),
       input: text
     });

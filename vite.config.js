@@ -5,6 +5,7 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
+        landing: "index.html",
         background: "src/extension/background.js",
         "content-script": "src/extension/content-script.js",
         reader: "reader.html"

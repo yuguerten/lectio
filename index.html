@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="OpenRead is a browser extension that helps developers read technical articles with saved highlights, notes, search, translation, and clear code blocks."
+    />
+    <title>OpenRead | Read smarter technical articles</title>
+    <script type="module" src="/src/landing/main.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-nav" data-site-nav>
+      <div class="nav-inner" aria-label="Primary navigation">
+        <a class="brand" href="#top" aria-label="OpenRead home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 5.5c2.5 0 4.5.7 6 2.1v11.2c-1.5-1.4-3.5-2.1-6-2.1V5.5Z" />
+              <path d="M20 5.5c-2.5 0-4.5.7-6 2.1v11.2c1.5-1.4 3.5-2.1 6-2.1V5.5Z" />
+              <path d="M10 7.6h4" />
+            </svg>
+          </span>
+          <span>OpenRead</span>
+        </a>
+
+        <button class="menu-button" type="button" data-menu-button aria-label="Open menu" aria-controls="primary-menu" aria-expanded="false">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+
+        <nav class="nav-links" id="primary-menu" data-nav-menu aria-label="Page sections">
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#changelog">Changelog</a>
+        </nav>
+
+        <div class="nav-tools">
+          <label class="language-select">
+            <span class="sr-only">Choose language</span>
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18" />
+              <path d="M12 3c2.2 2.4 3.3 5.4 3.3 9s-1.1 6.6-3.3 9" />
+              <path d="M12 3c-2.2 2.4-3.3 5.4-3.3 9s1.1 6.6 3.3 9" />
+            </svg>
+            <select aria-label="Language">
+              <option>English</option>
+              <option>Deutsch</option>
+              <option>Español</option>
+              <option>Français</option>
+              <option>日本語</option>
+            </select>
+          </label>
+          <a class="nav-action" href="#download">Add to Chrome</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="site-shell">
+      <section id="top" class="hero" aria-labelledby="hero-title">
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <p class="eyebrow">Browser extension for technical reading</p>
+            <h1 id="hero-title">Read smarter technical articles</h1>
+            <p class="hero-subtitle">
+              Highlight key ideas, ask for simple explanations, save notes, and search long articles without leaving the page.
+            </p>
+            <div class="hero-actions" id="download">
+              <a class="primary-action" href="https://chrome.google.com/webstore" target="_blank" rel="noreferrer">Add to Chrome - it's free</a>
+              <a class="secondary-action" href="#demo">Watch 60s demo</a>
+            </div>
+            <div class="trust-bar" aria-label="OpenRead trust signals">
+              <span class="rating" aria-label="4.8 star rating">★ 4.8 rating</span>
+              <span>2,400+ installs</span>
+              <span class="store-badge">Chrome Web Store</span>
+              <span class="store-badge">Firefox Add-ons</span>
+            </div>
+          </div>
+
+          <div class="browser-mockup" id="demo" role="img" aria-label="OpenRead extension panel inside a browser window on a technical article">
+            <div class="browser-top">
+              <span class="window-dot red"></span>
+              <span class="window-dot yellow"></span>
+              <span class="window-dot green"></span>
+              <span class="address-bar">engineering.example/articles/clean-code-review</span>
+            </div>
+            <div class="browser-content">
+              <article class="article-preview">
+                <p class="article-label">Technical Article</p>
+                <h2>Making code reviews easier to follow</h2>
+                <p>
+                  A good review explains the reason behind a change. It also keeps comments close to the code, so readers can return later and understand the decision.
+                </p>
+                <p>
+                  <mark>OpenRead saves this highlight</mark> with a note, color, and article link. You can find it again even after closing the tab.
+                </p>
+                <pre><code>const note = {
+  text: selectedText,
+  source: articleUrl
+};</code></pre>
+              </article>
+              <aside class="extension-panel" aria-label="OpenRead tools preview">
+                <div class="panel-header">
+                  <span class="brand-mark small" aria-hidden="true"></span>
+                  <strong>OpenRead</strong>
+                </div>
+                <div class="tool-row active">
+                  <span class="tool-icon purple">ϟ</span>
+                  <div>
+                    <strong>Explain</strong>
+                    <p>Simple summary for this paragraph.</p>
+                  </div>
+                </div>
+                <div class="tool-row">
+                  <span class="tool-icon teal">◆</span>
+                  <div>
+                    <strong>Saved note</strong>
+                    <p>“Check this before team sync.”</p>
+                  </div>
+                </div>
+                <div class="search-box">
+                  <span aria-hidden="true">⌕</span>
+                  <span>Search highlights</span>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="section-block" aria-labelledby="features-title">
+        <div class="section-heading">
+          <p class="eyebrow">Features</p>
+          <h2 id="features-title">Tools that stay with the article.</h2>
+          <p>OpenRead keeps reading, notes, translation, and code help in one clean browser view.</p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <div class="feature-icon purple" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" />
+              </svg>
+            </div>
+            <h3>Contextual AI</h3>
+            <p>Explain selected text in clear language, or translate it while you keep reading.</p>
+            <div class="mini-visual ai-visual" aria-label="Selected text with an explanation card">
+              <span>Selected paragraph</span>
+              <span>→ Simple explanation</span>
+              <span>→ Next question</span>
+            </div>
+          </article>
+
+          <article class="feature-card featured">
+            <div class="feature-text">
+              <div class="feature-icon teal" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 4h12v17l-6-3.5L6 21V4Z" />
+                </svg>
+              </div>
+              <h3>Saved Notes</h3>
+              <p>Keep highlights, comments, colors, and article links together in your browser.</p>
+            </div>
+            <div class="notes-visual" aria-label="Saved highlight and note preview">
+              <div>
+                <span class="note-tag">Highlight</span>
+                <p>“Review this idea before the architecture meeting.”</p>
+              </div>
+              <div>
+                <span class="note-tag">Article link</span>
+                <p>Saved with title, source, and reading position.</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon blue" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </div>
+            <h3>Real-time Search</h3>
+            <p>Find words, notes, and highlights in long articles as you type.</p>
+            <div class="mini-visual search-visual" aria-label="Search results inside an article">
+              <span>Search: “cache”</span>
+              <span>3 article matches</span>
+              <span>1 saved note</span>
+            </div>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon amber" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m8 9-4 3 4 3" />
+                <path d="m16 9 4 3-4 3" />
+                <path d="m14 5-4 14" />
+              </svg>
+            </div>
+            <h3>Code Aware</h3>
+            <p>Read code blocks clearly, copy snippets, and keep language labels visible.</p>
+            <div class="mini-visual code-visual" aria-label="Readable code block preview">
+              <span>&lt;code&gt; JavaScript</span>
+              <span>copy snippet</span>
+              <span>save note</span>
+            </div>
+          </article>
+        </div>
+
+        <div class="language-note" aria-label="Supported translation languages">
+          <strong>Translation languages:</strong>
+          English, Spanish, French, German, Portuguese, Italian, Dutch, Polish, Turkish, Arabic, Hindi, Japanese, Korean, and Chinese.
+        </div>
+      </section>
+
+      <section class="social-proof" aria-labelledby="proof-title">
+        <div class="logo-strip">
+          <span>Used by engineers at</span>
+          <strong>GitHub</strong>
+          <strong>Vercel</strong>
+          <strong>Mozilla</strong>
+        </div>
+        <div class="section-heading compact">
+          <p class="eyebrow">Developer feedback</p>
+          <h2 id="proof-title">Less tab switching. More understanding.</h2>
+        </div>
+        <div class="testimonial-grid">
+          <figure class="testimonial">
+            <div class="avatar" aria-hidden="true">AK</div>
+            <blockquote>OpenRead helps me turn long RFCs into notes I can actually find again. The reader feels calm, even on dense pages.</blockquote>
+            <figcaption><strong>Aisha Khan</strong><span>Frontend Engineer, Atlas Labs</span></figcaption>
+          </figure>
+          <figure class="testimonial">
+            <div class="avatar" aria-hidden="true">MT</div>
+            <blockquote>The quick explain action is useful for unfamiliar terms. I use it while reading browser and database posts.</blockquote>
+            <figcaption><strong>Mateo Torres</strong><span>Platform Engineer, Northstar</span></figcaption>
+          </figure>
+          <figure class="testimonial">
+            <div class="avatar" aria-hidden="true">LC</div>
+            <blockquote>Saved highlights stay attached to the article, so I can return later without rebuilding my context.</blockquote>
+            <figcaption><strong>Lin Chen</strong><span>Staff Developer, Cloudlane</span></figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section id="privacy" class="privacy-section" aria-labelledby="privacy-title">
+        <div>
+          <p class="eyebrow">Private by design</p>
+          <h2 id="privacy-title">Your notes stay in your browser.</h2>
+          <p>OpenRead stores saved notes and highlights locally. AI tools only use the text you choose for explanation or translation.</p>
+        </div>
+        <div class="privacy-cards">
+          <article>
+            <strong>Selected text only</strong>
+            <p>You choose the passage before asking for help.</p>
+          </article>
+          <article>
+            <strong>Local reading history</strong>
+            <p>Your saved notes are tied to the page in your browser.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="pricing" class="simple-section" aria-labelledby="pricing-title">
+        <p class="eyebrow">Pricing</p>
+        <h2 id="pricing-title">Free to start.</h2>
+        <p>Install the extension and use the core reader, highlights, notes, search, and code tools for free.</p>
+      </section>
+    </main>
+
+    <footer class="site-footer" id="changelog">
+      <div class="footer-inner">
+        <div>
+          <a class="brand footer-brand" href="#top" aria-label="OpenRead home">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>OpenRead</span>
+          </a>
+          <p>Private by design - your notes never leave your browser.</p>
+        </div>
+        <nav aria-label="Footer links">
+          <a href="#privacy">Privacy Policy</a>
+          <a href="#terms">Terms</a>
+          <a href="#changelog">Extension changelog</a>
+          <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="mailto:support@openread.dev">support@openread.dev</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

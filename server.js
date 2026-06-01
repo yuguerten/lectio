@@ -17,6 +17,14 @@ const server = createServer(async (request, response) => {
   await serveStatic(request, response);
 });
 
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use. Stop the existing server or run with PORT=${PORT + 1} npm run serve.`);
+    process.exit(1);
+  }
+  throw error;
+});
+
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`OpenRead backend running at http://127.0.0.1:${PORT}`);
 });
@@ -43,7 +51,7 @@ async function readJsonBody(request) {
 
 async function serveStatic(request, response) {
   const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
-  const pathname = url.pathname === "/" ? "/reader.html" : url.pathname;
+  const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
   const filePath = normalize(join(DIST_DIR, pathname));
 
   if (!filePath.startsWith(DIST_DIR)) {

@@ -20,7 +20,7 @@ VITE_OPENREAD_ASSIST_ENDPOINT=/api/assist
 
 For a deployed extension, set `VITE_OPENREAD_ASSIST_ENDPOINT` to your deployed `/api/assist` URL and configure `OPENAI_API_KEY` on the backend host. Do not expose the OpenAI key with a `VITE_` prefix.
 
-Load the generated `dist/` directory as an unpacked extension in Chromium-based browsers.
+Load the generated `dist/` directory as an unpacked extension in Chromium-based browsers. The public landing page is served from `index.html`, while `reader.html` remains the extension reader entry.
 
 ## Current Slice
 
