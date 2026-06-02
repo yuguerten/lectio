@@ -2,7 +2,7 @@ export function sanitizeArticleHtml(html) {
   const template = document.createElement("template");
   template.innerHTML = html;
 
-  for (const element of [...template.content.querySelectorAll("script, style, iframe, object, embed")]) {
+  for (const element of [...template.content.querySelectorAll("script, style, iframe, object, embed, form")]) {
     element.remove();
   }
 
@@ -30,12 +30,15 @@ const UNWANTED_ARTICLE_TEXT = [
   "graph layout.",
   "i’ve tried my best to keep this easy to understand",
   "i've tried my best to keep this easy to understand",
-  "this part is just plain hard to make explain in a single blog post"
+  "this part is just plain hard to make explain in a single blog post",
+  "thanks for reading",
+  "subscribe for free to receive new posts"
 ];
 
 function removeUnwantedArticleAsides(root) {
-  for (const element of [...root.querySelectorAll("p, h1, h2, h3, h4, h5, h6, blockquote")]) {
-    const normalized = (element.textContent || "").trim().toLowerCase();
+  for (const element of [...root.querySelectorAll("p, h1, h2, h3, h4, h5, h6, blockquote, div, section")]) {
+    const normalized = (element.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!normalized || normalized.length > 260) continue;
     if (UNWANTED_ARTICLE_TEXT.some((phrase) => normalized.includes(phrase))) {
       element.remove();
     }

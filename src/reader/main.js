@@ -10,6 +10,7 @@ import {
 import { createAnchorFromSelection, resolveAnchor } from "../core/textAnchor.js";
 import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore, createRemoteAnnotationStore } from "../core/localPersistence.js";
 import { renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
+import { isImplicitHeadingText, isStandaloneCodeParagraph, isTerminalSnippet } from "./heuristics.js";
 
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
 const colorLabelMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.label]));
@@ -23,8 +24,58 @@ const ASSIST_LANGUAGES = [
   { value: "zh-CN", label: "Chinese", flag: "🇨🇳", direction: "ltr" },
   { value: "ja", label: "Japanese", flag: "🇯🇵", direction: "ltr" }
 ];
+const LISTEN_MODELS = [
+  {
+    value: "hexgrad/kokoro-82m",
+    label: "Kokoro 82M",
+    voices: [
+      { value: "af_nova", label: "Nova" },
+      { value: "af_heart", label: "Heart" },
+      { value: "af_bella", label: "Bella" },
+      { value: "af_sarah", label: "Sarah" },
+      { value: "am_echo", label: "Echo" },
+      { value: "am_onyx", label: "Onyx" },
+      { value: "bf_emma", label: "Emma" },
+      { value: "bm_daniel", label: "Daniel" }
+    ]
+  },
+  {
+    value: "microsoft/mai-voice-2",
+    label: "MAI-Voice-2",
+    voices: [
+      { value: "en-US-Harper:MAI-Voice-2", label: "Harper" },
+      { value: "es-MX-Valeria:MAI-Voice-2", label: "Valeria" },
+      { value: "fr-FR-Soleil:MAI-Voice-2", label: "Soleil" },
+      { value: "de-DE-Klaus:MAI-Voice-2", label: "Klaus" }
+    ]
+  },
+  {
+    value: "x-ai/grok-voice-tts-1.0",
+    label: "Grok Voice",
+    voices: ["eve", "ara", "rex", "sal", "leo"].map((voice) => ({ value: voice, label: titleCase(voice) }))
+  },
+  {
+    value: "openai/gpt-4o-mini-tts-2025-12-15",
+    label: "OpenAI 4o mini",
+    voices: ["nova", "alloy", "shimmer", "echo", "fable", "onyx"].map((voice) => ({ value: voice, label: titleCase(voice) }))
+  },
+  {
+    value: "mistralai/voxtral-mini-tts-2603",
+    label: "Voxtral Mini",
+    voices: [
+      { value: "en_paul_neutral", label: "Paul" },
+      { value: "en_paul_happy", label: "Paul happy" },
+      { value: "gb_oliver_neutral", label: "Oliver" },
+      { value: "gb_jane_neutral", label: "Jane" },
+      { value: "fr_marie_neutral", label: "Marie" }
+    ]
+  }
+];
+const DEFAULT_LISTEN_MODEL = LISTEN_MODELS[0].value;
+const DEFAULT_LISTEN_VOICE = LISTEN_MODELS[0].voices[0].value;
 const ASSIST_ENDPOINT = resolveAssistEndpoint();
 const NOTES_ENDPOINT = resolveBackendEndpoint("/api/notes");
+const SPEECH_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_SPEECH_ENDPOINT || "/api/speech");
 const state = {
   article: null,
   annotations: [],
@@ -39,6 +90,16 @@ const state = {
   theme: "paper",
   focusMode: false,
   listening: false,
+  listen: {
+    model: DEFAULT_LISTEN_MODEL,
+    voice: DEFAULT_LISTEN_VOICE,
+    speed: 1,
+    audio: null,
+    audioUrl: "",
+    status: "idle",
+    error: "",
+    dirty: true
+  },
   assist: {
     selectedText: "",
     mode: "translate",
@@ -123,13 +184,21 @@ function renderWorkspace() {
           </div>
         </div>
         <div class="top-actions">
-          <button id="search-toggle" class="toolbar-button search-toggle" type="button" title="Search article (/)" aria-label="Search article">${searchIcon()}<kbd class="shortcut-badge" aria-hidden="true">/</kbd></button>
-          <button id="draw-toggle" class="toolbar-button" type="button" aria-pressed="false" title="Draw on page (D)" aria-label="Draw on page">${drawIcon()}<kbd class="shortcut-badge" aria-hidden="true">D</kbd></button>
-          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false"><span>${sunIcon()}</span><span>${moonIcon()}</span></button>
-          <button id="typography-toggle" class="text-button" type="button" title="Typography settings" aria-label="Typography settings">Aa</button>
-          <button id="export-pdf" class="toolbar-button export-button" type="button" title="Export PDF" aria-label="Export PDF">${downloadIcon()}</button>
-          <button id="bookmark-top" class="bookmark-button" type="button" title="Bookmark article (B)" aria-label="Bookmark article">${bookmarkIcon()}<kbd class="shortcut-badge" aria-hidden="true">B</kbd></button>
-          <button id="account-toggle" class="toolbar-button account-toggle" type="button" title="Account" aria-label="Account">${userIcon()}</button>
+          <div class="toolbar-group toolbar-primary">
+            <button id="search-toggle" class="toolbar-button toolbar-labeled search-toggle" type="button" title="Search article (/)" aria-label="Search article"><span class="toolbar-icon">${searchIcon()}</span><span class="toolbar-label">Search</span><kbd class="shortcut-badge" aria-hidden="true">/</kbd></button>
+          </div>
+          <div class="toolbar-group toolbar-content">
+            <button id="draw-toggle" class="toolbar-button toolbar-labeled" type="button" aria-pressed="false" title="Draw on page (D)" aria-label="Draw on page"><span class="toolbar-icon">${drawIcon()}</span><span class="toolbar-label">Draw</span><kbd class="shortcut-badge" aria-hidden="true">D</kbd></button>
+            <button id="export-pdf" class="toolbar-button toolbar-labeled export-button" type="button" title="Export PDF" aria-label="Export PDF"><span class="toolbar-icon">${downloadIcon()}</span><span class="toolbar-label">Export</span></button>
+            <button id="bookmark-top" class="toolbar-button toolbar-labeled bookmark-button" type="button" title="Bookmark article (B)" aria-label="Bookmark article"><span class="toolbar-icon">${bookmarkIcon()}</span><span class="toolbar-label">Bookmark</span><kbd class="shortcut-badge" aria-hidden="true">B</kbd></button>
+          </div>
+          <div class="toolbar-group toolbar-settings">
+            <button id="theme-toggle" class="toolbar-button toolbar-icon-only theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle theme"><span>${sunIcon()}</span><span>${moonIcon()}</span></button>
+            <button id="typography-toggle" class="toolbar-button toolbar-labeled text-button" type="button" title="Typography settings" aria-label="Typography settings"><span class="toolbar-icon">Aa</span><span class="toolbar-label">Typography</span></button>
+          </div>
+          <div class="toolbar-group toolbar-account">
+            <button id="account-toggle" class="toolbar-button toolbar-labeled account-toggle" type="button" title="Account" aria-label="Account"><span class="toolbar-icon">${userIcon()}</span><span class="toolbar-label">Account</span></button>
+          </div>
         </div>
         <div class="top-progress" aria-hidden="true"><span id="top-progress-bar"></span></div>
       </header>
@@ -149,6 +218,7 @@ function renderWorkspace() {
         </label>
       </div>
       <div id="auth-popover" class="auth-popover" aria-label="Account" role="dialog"></div>
+      <div id="listen-popover" class="listen-popover" aria-label="Listen settings" role="dialog"></div>
       <div id="typography-popover" class="typography-popover" aria-label="Reading settings" role="dialog">
         <section class="type-panel">
           <header class="settings-header">
@@ -179,10 +249,7 @@ function renderWorkspace() {
       </div>
 
       <nav class="reader-tools" aria-label="Reader tools">
-        <button id="highlight-tool" class="reader-tool is-primary" type="button" title="Highlight selected text (H)">${highlightIcon()}<span>Highlight</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">H</kbd></button>
-        <button id="review-open" class="reader-tool" type="button" title="Review notes (N)">${noteIcon()}<span>Notes</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">N</kbd></button>
         <button id="listen-toggle" class="reader-tool" type="button" title="Listen (L)" aria-pressed="false">${headphonesIcon()}<span>Listen</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">L</kbd></button>
-        <button id="bookmark-tool" class="reader-tool" type="button" title="Bookmark article (B)">${bookmarkIcon()}<span>Bookmark</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">B</kbd></button>
         <button id="focus-toggle" class="reader-tool" type="button" title="Focus mode" aria-pressed="false">${focusIcon()}<span>Focus</span></button>
       </nav>
 
@@ -197,7 +264,6 @@ function renderWorkspace() {
           ${DRAWING_COLORS.map((color) => `<button class="drawing-swatch" type="button" data-color="${color}" title="${color}" style="background:${color}"></button>`).join("")}
         </div>
         <label class="size-control" title="Brush size">
-          ${brushIcon()}
           <input id="draw-size" type="range" min="2" max="18" value="4" />
         </label>
         <button id="draw-undo" class="icon-tool" type="button" title="Undo (Ctrl+Z)">${undoIcon()}<kbd class="shortcut-badge draw-shortcut wide" aria-hidden="true">Z</kbd></button>
@@ -218,13 +284,14 @@ function renderWorkspace() {
   document.querySelector("#typography-toggle").addEventListener("click", openTypographyPopover);
   document.querySelector("#type-close").addEventListener("click", closeTypographyPopover);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
-  document.querySelector("#focus-toggle").addEventListener("click", toggleFocusMode);
-  document.querySelector("#listen-toggle").addEventListener("click", toggleListenMode);
-  document.querySelector("#highlight-tool").addEventListener("click", handleHighlightTool);
-  document.querySelector("#bookmark-tool").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
+  document.querySelector("#focus-toggle")?.addEventListener("click", toggleFocusMode);
+  document.querySelector("#listen-toggle")?.addEventListener("click", openListenPopover);
+  document.querySelector("#highlight-tool")?.addEventListener("click", handleHighlightTool);
+  document.querySelector("#bookmark-tool")?.addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
   document.querySelector("#bookmark-top").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
   bindTypographyControls();
   renderAuthPopover();
+  renderListenPopover();
   applyReaderPreferences();
   document.querySelector("#article-search").addEventListener("input", (event) => {
     state.searchQuery = event.target.value;
@@ -245,7 +312,7 @@ function renderWorkspace() {
   window.addEventListener("scroll", updateReadingProgress, { passive: true });
   window.addEventListener("resize", updateReadingProgress);
   document.querySelector("#export-pdf").addEventListener("click", exportPdf);
-  document.querySelector("#review-open").addEventListener("click", openReviewModal);
+  document.querySelector("#review-open")?.addEventListener("click", openReviewModal);
   document.querySelector("#selection-popover").addEventListener("mousedown", (event) => event.preventDefault());
   document.addEventListener("mousedown", closeFloatingCommentOnOutsideClick);
 
@@ -334,10 +401,13 @@ const BLOCKED_TOC_HEADINGS = new Set([
 
 function prepareArticleHeadings(articleRoot) {
   markArticleMetadata(articleRoot);
-  const primaryHeadings = [...articleRoot.querySelectorAll("h2, h3")];
-  const fallbackHeadings = primaryHeadings.length ? primaryHeadings : [...articleRoot.querySelectorAll("h1, h2")];
-  const seen = new Set();
-  state.toc = filterArticleTocHeadings(fallbackHeadings, seen).slice(0, 12).map((heading, index) => {
+  promoteImplicitArticleHeadings(articleRoot);
+  let headings = collectTocHeadings(articleRoot);
+  if (!headings.length) {
+    promoteImplicitArticleHeadings(articleRoot, { force: true });
+    headings = collectTocHeadings(articleRoot);
+  }
+  state.toc = headings.slice(0, 12).map((heading, index) => {
     if (!heading.id) heading.id = `openread-section-${index + 1}`;
     return {
       id: heading.id,
@@ -345,6 +415,26 @@ function prepareArticleHeadings(articleRoot) {
       level: heading.tagName.toLowerCase(),
       index
     };
+  });
+}
+
+function collectTocHeadings(articleRoot) {
+  const seen = new Set();
+  const candidates = [...articleRoot.querySelectorAll("h1, h2, h3, h4")];
+  return filterArticleTocHeadings(candidates, seen);
+}
+function promoteImplicitArticleHeadings(articleRoot, options = {}) {
+  if (!options.force && articleRoot.querySelectorAll("h2, h3").length) return;
+  const titleVariants = articleTitleVariants();
+  articleRoot.querySelectorAll("p, div").forEach((element) => {
+    if (element.matches(".article-meta, .code-card, .code-card *, form, form *, nav, nav *")) return;
+    if (element.querySelector("a, button, input, textarea, select, code, pre")) return;
+    const text = (element.textContent || "").trim();
+    const normalized = normalizeTocText(text);
+    if (!isImplicitHeadingText(text, normalized, titleVariants)) return;
+    const heading = document.createElement("h2");
+    heading.innerHTML = element.innerHTML;
+    element.replaceWith(heading);
   });
 }
 
@@ -639,30 +729,208 @@ function toggleFocusMode() {
   updateReadingProgress();
 }
 
-function toggleListenMode() {
-  const articleText = document.querySelector("#article")?.textContent?.trim();
-  if (!articleText || !window.speechSynthesis) {
-    showReaderToast("Listen is unavailable in this browser");
-    return;
-  }
-  if (state.listening) {
-    window.speechSynthesis.cancel();
-    state.listening = false;
-  } else {
-    const utterance = new SpeechSynthesisUtterance(articleText.slice(0, 12000));
-    utterance.rate = 0.94;
-    utterance.onend = () => {
-      state.listening = false;
-      document.querySelector("#listen-toggle")?.classList.remove("is-active");
-      document.querySelector("#listen-toggle")?.setAttribute("aria-pressed", "false");
-    };
-    window.speechSynthesis.speak(utterance);
-    state.listening = true;
-  }
-  document.querySelector("#listen-toggle")?.classList.toggle("is-active", state.listening);
-  document.querySelector("#listen-toggle")?.setAttribute("aria-pressed", String(state.listening));
+function openListenPopover() {
+  closeSearchPopover();
+  closeFilterPopover();
+  closeTypographyPopover();
+  closeAuthPopover();
+  closeCommentPopover();
+  closeAssistPopover();
+  renderListenPopover();
+  document.querySelector("#listen-popover")?.classList.add("is-visible");
 }
 
+function closeListenPopover() {
+  document.querySelector("#listen-popover")?.classList.remove("is-visible");
+}
+
+function renderListenPopover() {
+  const popover = document.querySelector("#listen-popover");
+  if (!popover) return;
+  const isLoading = state.listen.status === "loading";
+  const isPlaying = state.listen.status === "playing";
+  popover.innerHTML = `
+    <section class="listen-player" aria-label="Audio player">
+      <div class="listen-player-main">
+        <button id="listen-play" class="listen-play" type="button" aria-label="${isPlaying ? "Pause" : "Play"}" ${isLoading ? "disabled" : ""}>${isLoading ? spinnerIcon() : isPlaying ? pauseIcon() : playIcon()}</button>
+        <div class="listen-track">
+          <input id="listen-progress" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
+          <div class="listen-track-meta"><span id="listen-current">0:00</span><span id="listen-duration">0:00</span></div>
+        </div>
+        <span class="listen-volume" aria-hidden="true">${volumeIcon()}</span>
+        <button id="listen-menu-toggle" class="listen-menu-toggle" type="button" aria-label="Audio settings" aria-expanded="false" aria-controls="listen-menu">${moreVerticalIcon()}</button>
+      </div>
+      <div id="listen-menu" class="listen-player-controls" aria-label="Audio settings">
+        <label><span>Model</span><select id="listen-model">${listenModelOptions()}</select></label>
+        <label><span>Voice</span><select id="listen-voice">${listenVoiceOptions()}</select></label>
+        <label><span>Speed</span><select id="listen-speed"><option value="0.85" ${state.listen.speed === 0.85 ? "selected" : ""}>0.85x</option><option value="1" ${state.listen.speed === 1 ? "selected" : ""}>1x</option><option value="1.15" ${state.listen.speed === 1.15 ? "selected" : ""}>1.15x</option><option value="1.3" ${state.listen.speed === 1.3 ? "selected" : ""}>1.3x</option></select></label>
+      </div>
+      ${state.listen.error ? `<p class="listen-error">${escapeHtml(state.listen.error)}</p>` : ""}
+    </section>
+  `;
+  bindListenControls();
+  updateListenProgress();
+}
+
+function listenModelOptions() {
+  return LISTEN_MODELS
+    .map((model) => `<option value="${escapeAttribute(model.value)}" ${state.listen.model === model.value ? "selected" : ""}>${escapeHtml(model.label)}</option>`)
+    .join("");
+}
+
+function listenVoiceOptions() {
+  const voices = listenModelById(state.listen.model)?.voices || LISTEN_MODELS[0].voices;
+  return voices
+    .map((voice) => `<option value="${escapeAttribute(voice.value)}" ${state.listen.voice === voice.value ? "selected" : ""}>${escapeHtml(voice.label)}</option>`)
+    .join("");
+}
+
+function listenModelById(id) {
+  return LISTEN_MODELS.find((model) => model.value === id);
+}
+
+function titleCase(value) {
+  const text = String(value || "");
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+function bindListenControls() {
+  document.querySelector("#listen-play")?.addEventListener("click", toggleListenMode);
+  document.querySelector("#listen-progress")?.addEventListener("input", seekListenAudio);
+  document.querySelector("#listen-menu-toggle")?.addEventListener("click", toggleListenMenu);
+  document.querySelector("#listen-model")?.addEventListener("change", (event) => updateListenConfig({ model: event.target.value }));
+  document.querySelector("#listen-voice")?.addEventListener("change", (event) => updateListenConfig({ voice: event.target.value }));
+  document.querySelector("#listen-speed")?.addEventListener("change", (event) => updateListenConfig({ speed: Number(event.target.value) || 1 }));
+}
+
+function normalizeListenError(message) {
+  const text = String(message || "").trim();
+  if (/guardrail restrictions|data policy|privacy/i.test(text)) {
+    return "OpenRouter privacy settings are blocking this TTS request. Enable the required data policy at https://openrouter.ai/settings/privacy, or choose another TTS model.";
+  }
+  return text || "Audio generation failed";
+}
+
+function toggleListenMenu() {
+  const popover = document.querySelector("#listen-popover");
+  const button = document.querySelector("#listen-menu-toggle");
+  const isOpen = !popover?.classList.contains("is-menu-open");
+  popover?.classList.toggle("is-menu-open", isOpen);
+  button?.setAttribute("aria-expanded", String(isOpen));
+}
+
+function updateListenConfig(patch) {
+  if (patch.model) {
+    const voices = listenModelById(patch.model)?.voices || [];
+    if (!voices.some((voice) => voice.value === state.listen.voice)) patch.voice = voices[0]?.value || DEFAULT_LISTEN_VOICE;
+  }
+  Object.assign(state.listen, patch, { dirty: true, error: "" });
+  if (state.listen.audio) {
+    state.listen.audio.pause();
+    state.listen.audio.currentTime = 0;
+  }
+  state.listen.status = "idle";
+  revokeListenAudio();
+  renderListenPopover();
+  updateListenState();
+}
+
+async function toggleListenMode() {
+  try {
+    if (state.listen.status === "playing") {
+      state.listen.audio?.pause();
+      state.listen.status = "paused";
+      updateListenState();
+      renderListenPopover();
+      return;
+    }
+    if (!state.listen.audio || state.listen.dirty) await generateListenAudio();
+    await state.listen.audio.play();
+    state.listen.status = "playing";
+    updateListenState();
+    renderListenPopover();
+  } catch (error) {
+    state.listen.status = "idle";
+    state.listen.error = error.message || "Audio playback failed";
+    updateListenState();
+    renderListenPopover();
+  }
+}
+
+async function generateListenAudio() {
+  const articleText = document.querySelector("#article")?.textContent?.trim();
+  if (!articleText) throw new Error("No article text to read");
+  state.listen.status = "loading";
+  state.listen.error = "";
+  renderListenPopover();
+  const response = await fetch(SPEECH_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: articleText.slice(0, 12000), model: state.listen.model, voice: state.listen.voice, speed: state.listen.speed })
+  });
+  if (!response.ok) {
+    let message = "Audio generation failed";
+    try {
+      const payload = await response.json();
+      message = normalizeListenError(payload.error || message);
+    } catch {
+      message = normalizeListenError(await response.text() || message);
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  revokeListenAudio();
+  state.listen.audioUrl = URL.createObjectURL(blob);
+  state.listen.audio = new Audio(state.listen.audioUrl);
+  state.listen.audio.playbackRate = state.listen.speed;
+  state.listen.audio.addEventListener("timeupdate", updateListenProgress);
+  state.listen.audio.addEventListener("loadedmetadata", updateListenProgress);
+  state.listen.audio.addEventListener("ended", () => { state.listen.status = "idle"; updateListenState(); renderListenPopover(); });
+  state.listen.dirty = false;
+  state.listen.status = "paused";
+}
+
+function revokeListenAudio() {
+  if (state.listen.audioUrl) URL.revokeObjectURL(state.listen.audioUrl);
+  state.listen.audioUrl = "";
+  state.listen.audio = null;
+}
+
+function seekListenAudio(event) {
+  const audio = state.listen.audio;
+  if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+  audio.currentTime = (Number(event.target.value) / 1000) * audio.duration;
+  updateListenProgress();
+}
+
+function updateListenProgress() {
+  const audio = state.listen.audio;
+  const current = audio?.currentTime || 0;
+  const duration = Number.isFinite(audio?.duration) ? audio.duration : 0;
+  const progress = document.querySelector("#listen-progress");
+  const currentLabel = document.querySelector("#listen-current");
+  const durationLabel = document.querySelector("#listen-duration");
+  if (progress) {
+    const value = duration > 0 ? Math.round((current / duration) * 1000) : 0;
+    progress.value = String(value);
+    progress.style.setProperty("--listen-fill", `${value / 10}%`);
+  }
+  if (currentLabel) currentLabel.textContent = formatListenTime(current);
+  if (durationLabel) durationLabel.textContent = formatListenTime(duration);
+}
+
+function formatListenTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.floor(seconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${remainder}`;
+}
+
+function updateListenState() {
+  const active = state.listen.status === "playing" || state.listen.status === "loading";
+  document.querySelector("#listen-toggle")?.classList.toggle("is-active", active);
+  document.querySelector("#listen-toggle")?.setAttribute("aria-pressed", String(active));
+}
 function handleHighlightTool() {
   if (state.selectionAnchor) {
     addAnnotation("green", false);
@@ -769,7 +1037,6 @@ function renderAssistPopover(content = "", options = {}) {
     state.assist.targetLanguage = event.target.value;
     requestAssist("translate");
   });
-  popover.querySelector("[data-action='copy-result']")?.addEventListener("click", () => copyText(content, "Result copied"));
 }
 
 function translateAssistTemplate(content, options = {}) {
@@ -784,7 +1051,6 @@ function translateAssistTemplate(content, options = {}) {
         </select>
       </label>
       ${assistResultTemplate(content, { ...options, mode: "translate" })}
-      ${content && !options.loading && !options.error ? assistResultActionsTemplate() : ""}
     </div>
   `;
 }
@@ -792,7 +1058,6 @@ function explainAssistTemplate(content, options = {}) {
   return `
     <div class="assist-body">
       ${assistResultTemplate(content, { ...options, mode: "explain", loading: options.loading || !content })}
-      ${content && !options.loading && !options.error ? assistResultActionsTemplate() : ""}
     </div>
   `;
 }
@@ -814,13 +1079,6 @@ function assistSkeletonTemplate(mode, direction = "ltr") {
   `;
 }
 
-function assistResultActionsTemplate() {
-  return `
-    <div class="assist-actions">
-      <button type="button" data-action="copy-result">${copyIcon()}<span>Copy result</span></button>
-    </div>
-  `;
-}
 
 async function requestAssist(mode) {
   const requestId = ++state.assist.requestId;
@@ -876,9 +1134,7 @@ function enhanceCodeBlocks(articleRoot) {
   });
   articleRoot.querySelectorAll("p").forEach((paragraph) => {
     const text = paragraph.textContent || "";
-    const hasLongCodeShape = text.length > 48 && /[{};=<>]|\b(function|const|let|var|class|import|return|SELECT|FROM)\b/.test(text);
-    const hasTerminalShape = isTerminalSnippet(text);
-    if ((hasLongCodeShape || hasTerminalShape) && text.split(/\s+/).length < 96) codeCandidates.push(paragraph);
+    if (isStandaloneCodeParagraph(text)) codeCandidates.push(paragraph);
   });
 
   const seen = new Set();
@@ -927,20 +1183,6 @@ function normalizeLanguageLabel(value) {
   return value.replace(/^./, (letter) => letter.toUpperCase());
 }
 
-function isTerminalSnippet(text) {
-  const trimmed = text.trim();
-  if (!trimmed || trimmed.length < 8) return false;
-  const lines = trimmed.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const joined = lines.join(" ");
-  const flagCount = (joined.match(/(?:^|\s)-{1,2}[a-z][\w-]*(?:[=\s][^\s\\]+)?/gi) || []).length;
-  const hasPrompt = lines.some((line) => /^(?:[$#>]\s+|\w+@[-\w.]+:[^$#>]+[$#]\s+)/.test(line));
-  const hasContinuation = lines.length > 1 && lines.slice(0, -1).some((line) => /\\$/.test(line));
-  const startsWithCommand = /^\s*(?:[\w./-]+(?:\.exe)?)(?:\s|$)/.test(trimmed) && flagCount >= 2;
-  const startsWithFlags = /^\s*-{1,2}[a-z][\w-]*(?:\s|=)/i.test(trimmed) && flagCount >= 2;
-  const hasShellOperators = /\s(?:&&|\|\||\||2>|>)\s/.test(joined);
-  const hasEnvAssignment = /(?:^|\s)[A-Z_][A-Z0-9_]*=[^\s]+\s+\w/.test(joined);
-  return hasPrompt || hasContinuation || startsWithCommand || startsWithFlags || (flagCount >= 3 && (hasShellOperators || hasEnvAssignment));
-}
 function bindSelectionPopover() {
   document.addEventListener("selectionchange", () => {
     if (state.drawing.enabled) return;
@@ -1129,7 +1371,8 @@ function closeFloatingCommentOnOutsideClick(event) {
   if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
   if (!event.target.closest?.(".typography-popover, #typography-toggle")) closeTypographyPopover();
   if (!event.target.closest?.(".auth-popover, #account-toggle")) closeAuthPopover();
-  if (event.target.closest?.(".assist-popover, .comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
+  if (!event.target.closest?.(".listen-popover, #listen-toggle")) closeListenPopover();
+  if (event.target.closest?.(".assist-popover, .listen-popover, .comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
   closeAssistPopover();
 }
@@ -1661,6 +1904,11 @@ function handleGlobalKeydown(event) {
       closeTypographyPopover();
       return;
     }
+    if (document.querySelector("#listen-popover")?.classList.contains("is-visible")) {
+      event.preventDefault();
+      closeListenPopover();
+      return;
+    }
     if (document.querySelector("#assist-popover")?.classList.contains("is-visible")) {
       event.preventDefault();
       closeAssistPopover();
@@ -1823,8 +2071,28 @@ function bookmarkIcon() {
   return svg('<path d="M6 4h12v17l-6-3.5L6 21V4Z"/>', { size: 20 });
 }
 
+function playIcon() {
+  return svg('<path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/>', { size: 18 });
+}
+
+function pauseIcon() {
+  return svg('<path d="M8 5v14"/><path d="M16 5v14"/>', { size: 18, stroke: 2.4 });
+}
+
+function spinnerIcon() {
+  return svg('<path d="M21 12a9 9 0 1 1-4.2-7.6"/>', { size: 18, stroke: 2.4 });
+}
+
 function headphonesIcon() {
   return svg('<path d="M4 14a8 8 0 0 1 16 0"/><path d="M4 14v4a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2"/><path d="M20 14v4a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2"/>', { size: 18 });
+}
+
+function volumeIcon() {
+  return svg('<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M16 9.5a4 4 0 0 1 0 5"/><path d="M19 7a8 8 0 0 1 0 10"/>', { size: 22, stroke: 2.2 });
+}
+
+function moreVerticalIcon() {
+  return svg('<path d="M12 5h.01"/><path d="M12 12h.01"/><path d="M12 19h.01"/>', { size: 22, stroke: 3.4 });
 }
 
 function focusIcon() {

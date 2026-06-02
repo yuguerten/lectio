@@ -15,7 +15,10 @@ Create `.env` for the server-side OpenRouter assist endpoint:
 ```sh
 OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_MODEL=deepseek/deepseek-v4-flash
+OPENROUTER_TTS_MODEL=openai/gpt-4o-mini-tts-2025-12-15
+OPENROUTER_TTS_VOICE=nova
 VITE_OPENREAD_ASSIST_ENDPOINT=/api/assist
+VITE_OPENREAD_SPEECH_ENDPOINT=/api/speech
 ```
 
 For a deployed extension, set `VITE_OPENREAD_ASSIST_ENDPOINT` to your deployed `/api/assist` URL and configure `OPENROUTER_API_KEY` on the backend host. Do not expose the OpenRouter key with a `VITE_` prefix.
@@ -31,7 +34,7 @@ Load the generated `dist/` directory as an unpacked extension in Chromium-based 
 
 ## OpenRouter Assist Backend
 
-`api/assist.js` is a server-side endpoint for selected-text Translate and Explain. It expects `OPENROUTER_API_KEY` on the backend and calls OpenRouter's Chat API.
+`api/assist.js` is a server-side endpoint for selected-text Translate and Explain. It expects `OPENROUTER_API_KEY` on the backend and calls OpenRouter's Chat API. `api/speech.js` proxies OpenRouter text-to-speech for the reader audio player and returns MP3 audio bytes.
 
 Test your key/model with:
 

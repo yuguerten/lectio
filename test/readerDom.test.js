@@ -76,10 +76,15 @@ test("removes unwanted article asides from sanitized reader HTML", () => {
     <p>Keep this useful paragraph.</p>
     <h2>Graph layout.</h2>
     <p>I’ve tried my best to keep this easy to understand, but this part is just plain hard to make explain in a single blog post.</p>
+    <p>Thanks for reading zach's tech blog! Subscribe for free to receive new posts and support my work.</p>
+    <form><input placeholder="Type your email"><button>Subscribe</button></form>
+    <div>Thanks for reading zach's tech blog! Subscribe for free to receive new posts and support my work.</div>
   `);
 
   assert.match(html, /Keep this useful paragraph/);
   assert.doesNotMatch(html, /recieved feedback/);
   assert.doesNotMatch(html, /Graph layout/);
   assert.doesNotMatch(html, /plain hard/);
+  assert.doesNotMatch(html, /Subscribe/);
+  assert.doesNotMatch(html, /Type your email/);
 });

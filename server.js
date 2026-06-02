@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { readFile } from "node:fs/promises";
 import assistHandler from "./api/assist.js";
+import speechHandler from "./api/speech.js";
 import { handleBackendApi } from "./api/backend.js";
 
 process.loadEnvFile?.(".env");
@@ -11,7 +12,12 @@ const DIST_DIR = normalize(join(process.cwd(), "dist"));
 
 const server = createServer(async (request, response) => {
   if (request.url?.startsWith("/api/assist")) {
-    await handleAssist(request, response);
+    await handleJsonApi(request, response, assistHandler);
+    return;
+  }
+
+  if (request.url?.startsWith("/api/speech")) {
+    await handleJsonApi(request, response, speechHandler);
     return;
   }
 
@@ -35,7 +41,7 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`OpenRead backend running at http://127.0.0.1:${PORT}`);
 });
 
-async function handleAssist(request, response) {
+async function handleJsonApi(request, response, handler) {
   request.body = await readJsonBody(request);
   response.status = (code) => {
     response.statusCode = code;
@@ -45,7 +51,7 @@ async function handleAssist(request, response) {
     response.setHeader("Content-Type", "application/json; charset=utf-8");
     response.end(JSON.stringify(payload));
   };
-  await assistHandler(request, response);
+  await handler(request, response);
 }
 
 async function readJsonBody(request) {
