@@ -1937,6 +1937,17 @@ svg {
   color: #9b1c1c;
 }
 
+.assist-result[dir="rtl"] {
+  padding: 0 0 0 4px;
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+}
+
+.assist-skeleton[dir="rtl"] span {
+  justify-self: end;
+}
+
 .assist-actions {
   display: flex;
   flex-wrap: wrap;

@@ -14,6 +14,15 @@ import { renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from ".
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
 const colorLabelMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.label]));
 const DRAWING_COLORS = ["#171717", "#e03131", "#1971c2", "#2f9e44", "#f08c00"];
+const ASSIST_LANGUAGES = [
+  { value: "en", label: "English", flag: "🇬🇧", direction: "ltr" },
+  { value: "fr", label: "French", flag: "🇫🇷", direction: "ltr" },
+  { value: "es", label: "Spanish", flag: "🇪🇸", direction: "ltr" },
+  { value: "de", label: "German", flag: "🇩🇪", direction: "ltr" },
+  { value: "ar", label: "Arabic", flag: "🇸🇦", direction: "rtl" },
+  { value: "zh-CN", label: "Chinese", flag: "🇨🇳", direction: "ltr" },
+  { value: "ja", label: "Japanese", flag: "🇯🇵", direction: "ltr" }
+];
 const ASSIST_ENDPOINT = resolveAssistEndpoint();
 const NOTES_ENDPOINT = resolveBackendEndpoint("/api/notes");
 const state = {
@@ -764,22 +773,13 @@ function renderAssistPopover(content = "", options = {}) {
 }
 
 function translateAssistTemplate(content, options = {}) {
-  const languages = [
-    ["en", "English"],
-    ["fr", "French"],
-    ["es", "Spanish"],
-    ["de", "German"],
-    ["ar", "Arabic"],
-    ["zh-CN", "Chinese"],
-    ["ja", "Japanese"]
-  ];
   return `
     <div class="assist-body">
       <label class="assist-language-select">
         <span>Target language</span>
         <select data-language>
-          ${languages
-            .map(([value, label]) => `<option value="${value}" ${state.assist.targetLanguage === value ? "selected" : ""}>${label}</option>`)
+          ${ASSIST_LANGUAGES
+            .map((language) => `<option value="${language.value}" ${state.assist.targetLanguage === language.value ? "selected" : ""}>${language.flag} ${language.label}</option>`)
             .join("")}
         </select>
       </label>
@@ -788,7 +788,6 @@ function translateAssistTemplate(content, options = {}) {
     </div>
   `;
 }
-
 function explainAssistTemplate(content, options = {}) {
   return `
     <div class="assist-body">
@@ -799,15 +798,17 @@ function explainAssistTemplate(content, options = {}) {
 }
 
 function assistResultTemplate(content, options = {}) {
-  if (options.loading) return assistSkeletonTemplate(options.mode || state.assist.mode);
+  const mode = options.mode || state.assist.mode;
+  const direction = assistResultDirection(mode);
+  if (options.loading) return assistSkeletonTemplate(mode, direction);
   if (!content) return "";
-  return `<div class="assist-result ${options.error ? "is-error" : ""}">${escapeHtml(content)}</div>`;
+  return `<div class="assist-result ${options.error ? "is-error" : ""}" dir="${direction}">${escapeHtml(content)}</div>`;
 }
 
-function assistSkeletonTemplate(mode) {
+function assistSkeletonTemplate(mode, direction = "ltr") {
   const widths = mode === "translate" ? ["72%", "91%", "44%"] : ["88%", "96%", "82%", "93%", "74%", "52%"];
   return `
-    <div class="assist-result assist-skeleton" role="status" aria-live="polite" aria-label="${mode === "translate" ? "Translating" : "Explaining"}">
+    <div class="assist-result assist-skeleton" dir="${direction}" role="status" aria-live="polite" aria-label="${mode === "translate" ? "Translating" : "Explaining"}">
       ${widths.map((width) => `<span style="--skeleton-width:${width}"></span>`).join("")}
     </div>
   `;
@@ -846,17 +847,15 @@ async function requestAssist(mode) {
 }
 
 function languageLabel(value) {
-  return (
-    {
-      en: "English",
-      fr: "French",
-      es: "Spanish",
-      de: "German",
-      ar: "Arabic",
-      "zh-CN": "Chinese",
-      ja: "Japanese"
-    }[value] || value || "English"
-  );
+  return languageMeta(value).label;
+}
+
+function languageMeta(value) {
+  return ASSIST_LANGUAGES.find((language) => language.value === value) || ASSIST_LANGUAGES[0];
+}
+
+function assistResultDirection(mode) {
+  return mode === "translate" ? languageMeta(state.assist.targetLanguage).direction : "ltr";
 }
 
 async function copyText(text, message) {
