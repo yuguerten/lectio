@@ -33,7 +33,8 @@ const state = {
   assist: {
     selectedText: "",
     mode: "translate",
-    targetLanguage: "en"
+    targetLanguage: "en",
+    requestId: 0
   },
   toc: [],
   typography: {
@@ -691,10 +692,19 @@ function clamp(value, min, max) {
 }
 
 
+function safeCreateAnchorFromSelection(articleRoot, selection) {
+  try {
+    return createAnchorFromSelection(articleRoot, selection);
+  } catch (error) {
+    console.warn("OpenRead selection anchor failed", error);
+    return null;
+  }
+}
+
 function getSelectedArticleText() {
   const articleRoot = document.querySelector("#article");
   const selection = window.getSelection();
-  const anchor = createAnchorFromSelection(articleRoot, selection);
+  const anchor = safeCreateAnchorFromSelection(articleRoot, selection);
   if (anchor?.exact?.trim()) {
     state.selectionAnchor = anchor;
     return anchor.exact.trim();
@@ -724,102 +734,97 @@ function openAssistPopover(mode, text) {
   closeTypographyPopover();
   closeCommentPopover();
   renderAssistPopover();
+  if (mode === "explain") {
+    requestAssist("explain");
+  }
 }
 
 function renderAssistPopover(content = "", options = {}) {
   const popover = document.querySelector("#assist-popover");
   if (!popover) return;
-  const selectedText = state.assist.selectedText;
   const mode = state.assist.mode;
-  const prompt = buildExplainPrompt(selectedText);
   popover.innerHTML = `
     <section class="assist-card" role="dialog" aria-label="${mode === "translate" ? "Translate selection" : "Explain selection"}">
       <header class="assist-header">
         <div>
-          <strong>${mode === "translate" ? "Translate" : "Explain"}</strong>
-          <span>${escapeHtml(shortQuote(selectedText))}</span>
+          <strong>${mode === "translate" ? "Translate to" : "Explanation"}</strong>
         </div>
         <button type="button" data-action="close" title="Close">${xIcon()}</button>
       </header>
-      <div class="assist-tabs" role="tablist">
-        <button type="button" class="${mode === "translate" ? "is-active" : ""}" data-mode="translate">${translateIcon()}<span>Translate</span></button>
-        <button type="button" class="${mode === "explain" ? "is-active" : ""}" data-mode="explain">${sparkIcon()}<span>Explain</span></button>
-      </div>
-      ${mode === "translate" ? translateAssistTemplate(content, options) : explainAssistTemplate(prompt, content, options)}
+      ${mode === "translate" ? translateAssistTemplate(content, options) : explainAssistTemplate(content, options)}
     </section>
   `;
   popover.classList.add("is-visible");
   popover.querySelector('[data-action="close"]').addEventListener("click", closeAssistPopover);
-  popover.querySelectorAll("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.assist.mode = button.dataset.mode;
-      renderAssistPopover();
-    });
-  });
-  popover.querySelector("[data-target-language]")?.addEventListener("change", (event) => {
+  popover.querySelector("[data-language]")?.addEventListener("change", (event) => {
     state.assist.targetLanguage = event.target.value;
-    renderAssistPopover();
+    requestAssist("translate");
   });
-  popover.querySelector("[data-action='copy-selected']")?.addEventListener("click", () => copyText(selectedText, "Selected text copied"));
-  popover.querySelector("[data-action='copy-prompt']")?.addEventListener("click", () => copyText(prompt, "Explanation prompt copied"));
   popover.querySelector("[data-action='copy-result']")?.addEventListener("click", () => copyText(content, "Result copied"));
-  popover.querySelector("[data-action='translate-inline']")?.addEventListener("click", translateSelectionInline);
-  popover.querySelector("[data-action='explain-inline']")?.addEventListener("click", explainSelectionInline);
 }
 
 function translateAssistTemplate(content, options = {}) {
+  const languages = [
+    ["en", "English"],
+    ["fr", "French"],
+    ["es", "Spanish"],
+    ["de", "German"],
+    ["ar", "Arabic"],
+    ["zh-CN", "Chinese"],
+    ["ja", "Japanese"]
+  ];
   return `
     <div class="assist-body">
-      <label class="assist-field">
+      <label class="assist-language-select">
         <span>Target language</span>
-        <select data-target-language>
-          ${[
-            ["en", "English"],
-            ["fr", "French"],
-            ["es", "Spanish"],
-            ["de", "German"],
-            ["ar", "Arabic"],
-            ["zh-CN", "Chinese"],
-            ["ja", "Japanese"]
-          ]
+        <select data-language>
+          ${languages
             .map(([value, label]) => `<option value="${value}" ${state.assist.targetLanguage === value ? "selected" : ""}>${label}</option>`)
             .join("")}
         </select>
       </label>
-      ${content ? `<div class="assist-result ${options.error ? "is-error" : ""}">${escapeHtml(content)}</div>` : `<p class="assist-hint">Translate selected text with OpenAI.</p>`}
-      <div class="assist-actions">
-        <button type="button" data-action="translate-inline">${translateIcon()}<span>Translate</span></button>
-        ${content ? `<button type="button" data-action="copy-result">${copyIcon()}<span>Copy result</span></button>` : ""}
-        <button type="button" data-action="copy-selected">${copyIcon()}<span>Copy text</span></button>
-      </div>
+      ${assistResultTemplate(content, { ...options, mode: "translate" })}
+      ${content && !options.loading && !options.error ? assistResultActionsTemplate() : ""}
     </div>
   `;
 }
 
-function explainAssistTemplate(prompt, content, options = {}) {
+function explainAssistTemplate(content, options = {}) {
   return `
     <div class="assist-body">
-      ${content ? `<div class="assist-result ${options.error ? "is-error" : ""}">${escapeHtml(content)}</div>` : `<p class="assist-hint">Explain selected text with OpenAI.</p>`}
-      <div class="assist-actions">
-        <button type="button" data-action="explain-inline">${sparkIcon()}<span>Explain</span></button>
-        ${content ? `<button type="button" data-action="copy-result">${copyIcon()}<span>Copy result</span></button>` : ""}
-        <button type="button" data-action="copy-prompt">${copyIcon()}<span>Copy prompt</span></button>
-      </div>
+      ${assistResultTemplate(content, { ...options, mode: "explain", loading: options.loading || !content })}
+      ${content && !options.loading && !options.error ? assistResultActionsTemplate() : ""}
     </div>
   `;
 }
 
-async function translateSelectionInline() {
-  await requestAssist("translate");
+function assistResultTemplate(content, options = {}) {
+  if (options.loading) return assistSkeletonTemplate(options.mode || state.assist.mode);
+  if (!content) return "";
+  return `<div class="assist-result ${options.error ? "is-error" : ""}">${escapeHtml(content)}</div>`;
 }
 
-async function explainSelectionInline() {
-  await requestAssist("explain");
+function assistSkeletonTemplate(mode) {
+  const widths = mode === "translate" ? ["72%", "91%", "44%"] : ["88%", "96%", "82%", "93%", "74%", "52%"];
+  return `
+    <div class="assist-result assist-skeleton" role="status" aria-live="polite" aria-label="${mode === "translate" ? "Translating" : "Explaining"}">
+      ${widths.map((width) => `<span style="--skeleton-width:${width}"></span>`).join("")}
+    </div>
+  `;
+}
+
+function assistResultActionsTemplate() {
+  return `
+    <div class="assist-actions">
+      <button type="button" data-action="copy-result">${copyIcon()}<span>Copy result</span></button>
+    </div>
+  `;
 }
 
 async function requestAssist(mode) {
+  const requestId = ++state.assist.requestId;
   try {
-    renderAssistPopover(mode === "translate" ? "Translating..." : "Explaining...");
+    renderAssistPopover(mode === "translate" ? "Translating..." : "Explaining...", { loading: true });
     const response = await fetch(ASSIST_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -830,9 +835,11 @@ async function requestAssist(mode) {
       })
     });
     const payload = await response.json().catch(() => ({}));
+    if (requestId !== state.assist.requestId) return;
     if (!response.ok) throw new Error(payload.error || "Assist request failed");
     renderAssistPopover(payload.text || "");
   } catch (error) {
+    if (requestId !== state.assist.requestId) return;
     renderAssistPopover(error.message || "Assist request failed", { error: true });
     showReaderToast(error.message || "Assist request failed");
   }
@@ -852,16 +859,13 @@ function languageLabel(value) {
   );
 }
 
-function buildExplainPrompt(text) {
-  return `Explain this selected text clearly and briefly. Define important terms, preserve technical accuracy, and include a tiny example if useful:\n\n${text}`;
-}
-
 async function copyText(text, message) {
   await navigator.clipboard?.writeText(text);
   showReaderToast(message);
 }
 
 function closeAssistPopover() {
+  state.assist.requestId += 1;
   document.querySelector("#assist-popover")?.classList.remove("is-visible");
 }
 
@@ -943,7 +947,7 @@ function bindSelectionPopover() {
     if (state.drawing.enabled) return;
     const selection = window.getSelection();
     const articleRoot = document.querySelector("#article");
-    const anchor = createAnchorFromSelection(articleRoot, selection);
+    const anchor = safeCreateAnchorFromSelection(articleRoot, selection);
     state.selectionAnchor = anchor;
 
     const popover = document.querySelector("#selection-popover");

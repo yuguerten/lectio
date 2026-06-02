@@ -1,17 +1,39 @@
-import OpenAI from "openai";
+import { OpenRouter } from "@openrouter/sdk";
 
 process.loadEnvFile?.(".env");
 
-if (!process.env.OPENAI_API_KEY) {
-  console.error("OPENAI_API_KEY is empty. Add your key to .env first.");
+const apiKey = process.env.OPENROUTER_API_KEY;
+
+if (!apiKey) {
+  console.error("OPENROUTER_API_KEY is empty. Add your key to .env first.");
   process.exit(1);
 }
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const model = process.env.OPENAI_MODEL || "gpt-5.2";
-const response = await client.responses.create({
-  model,
-  input: "Reply with exactly: openread-ok"
+const client = new OpenRouter({ apiKey });
+const model = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash";
+const stream = await client.chat.send({
+  chatRequest: {
+    model,
+    messages: [
+      {
+        role: "user",
+        content: "Reply with exactly: openread-ok"
+      }
+    ],
+    stream: true
+  }
 });
 
-console.log(response.output_text?.trim() || "[empty response]");
+let response = "";
+let reasoningTokens = null;
+
+for await (const chunk of stream) {
+  const content = chunk.choices?.[0]?.delta?.content;
+  if (content) response += content;
+  if (chunk.usage) {
+    reasoningTokens = chunk.usage.reasoningTokens ?? chunk.usage.reasoning_tokens ?? null;
+  }
+}
+
+console.log(response.trim() || "[empty response]");
+if (reasoningTokens !== null) console.log("Reasoning tokens:", reasoningTokens);

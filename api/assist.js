@@ -1,6 +1,7 @@
-import OpenAI from "openai";
+import { OpenRouter } from "@openrouter/sdk";
 
 const MAX_TEXT_LENGTH = 6000;
+const DEFAULT_MODEL = "deepseek/deepseek-v4-flash";
 
 export default async function handler(request, response) {
   setCorsHeaders(response);
@@ -15,8 +16,10 @@ export default async function handler(request, response) {
     return;
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    response.status(500).json({ error: "OPENAI_API_KEY is not configured" });
+  const apiKey = process.env.OPENROUTER_API_KEY;
+
+  if (!apiKey) {
+    response.status(500).json({ error: "OPENROUTER_API_KEY is not configured" });
     return;
   }
 
@@ -36,22 +39,23 @@ export default async function handler(request, response) {
       return;
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const result = await client.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-5.2",
-      instructions: instructionsFor(mode, targetLanguage),
-      input: text
+    const client = new OpenRouter({ apiKey });
+    const result = await runOpenRouterAssist(client, {
+      mode,
+      text,
+      targetLanguage
     });
 
     response.status(200).json({
       mode,
-      text: result.output_text?.trim() || ""
+      text: normalizeAssistText(result.text),
+      reasoningTokens: result.reasoningTokens
     });
   } catch (error) {
     console.error("OpenRead assist failed", error);
     const status = error.status || 500;
     const message = error.code === "insufficient_quota"
-      ? "OpenAI quota exceeded. Check billing, credits, and project limits for this API key."
+      ? "OpenRouter quota exceeded. Check billing, credits, and project limits for this API key."
       : error.message || "Assist request failed";
     response.status(status >= 400 && status < 600 ? status : 500).json({
       error: message,
@@ -68,10 +72,55 @@ function parseBody(body) {
 
 function instructionsFor(mode, targetLanguage) {
   if (mode === "translate") {
-    return `Translate the user's selected text into ${targetLanguage}. Return only the translated text. Preserve code, URLs, product names, and technical terms when translation would make them less accurate.`;
+    return `Translate the user's selected text into ${targetLanguage}. Return only the translated text. Use plain text only. Do not use Markdown, bold markers, headings, bullets, or commentary. Preserve code, URLs, product names, and technical terms when translation would make them less accurate.`;
   }
 
-  return "Explain the user's selected text clearly and briefly. Define important terms, preserve technical accuracy, and include a tiny example only if it helps. Keep the answer concise.";
+  return "Explain the user's selected text in natural plain language. Use one or two short paragraphs. Do not use Markdown, bold markers, headings, bullets, or meta commentary. Define important terms only when needed, preserve technical accuracy, and keep the answer concise.";
+}
+
+function normalizeAssistText(text) {
+  return String(text || "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function runOpenRouterAssist(client, { mode, text, targetLanguage }) {
+  const stream = await client.chat.send({
+    chatRequest: {
+      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: instructionsFor(mode, targetLanguage)
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      stream: true
+    }
+  });
+
+  let textResponse = "";
+  let reasoningTokens = null;
+
+  for await (const chunk of stream) {
+    const content = chunk.choices?.[0]?.delta?.content;
+    if (content) textResponse += content;
+    if (chunk.usage) {
+      reasoningTokens = chunk.usage.reasoningTokens ?? chunk.usage.reasoning_tokens ?? null;
+    }
+  }
+
+  return {
+    text: textResponse,
+    reasoningTokens
+  };
 }
 
 function setCorsHeaders(response) {

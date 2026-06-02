@@ -10,15 +10,15 @@ npm test
 npm run build
 ```
 
-Create `.env` for the server-side OpenAI assist endpoint:
+Create `.env` for the server-side OpenRouter assist endpoint:
 
 ```sh
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-5.2
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash
 VITE_OPENREAD_ASSIST_ENDPOINT=/api/assist
 ```
 
-For a deployed extension, set `VITE_OPENREAD_ASSIST_ENDPOINT` to your deployed `/api/assist` URL and configure `OPENAI_API_KEY` on the backend host. Do not expose the OpenAI key with a `VITE_` prefix.
+For a deployed extension, set `VITE_OPENREAD_ASSIST_ENDPOINT` to your deployed `/api/assist` URL and configure `OPENROUTER_API_KEY` on the backend host. Do not expose the OpenRouter key with a `VITE_` prefix.
 
 Load the generated `dist/` directory as an unpacked extension in Chromium-based browsers. The public landing page is served from `index.html`, while `reader.html` remains the extension reader entry.
 
@@ -29,9 +29,9 @@ Load the generated `dist/` directory as an unpacked extension in Chromium-based 
 - Reader workspace renders extracted article HTML, text-selection anchored highlights, margin notes, local persistence, filters, and Markdown export.
 - Core URL, anchoring, annotation, storage, and export modules have Node tests.
 
-## OpenAI Assist Backend
+## OpenRouter Assist Backend
 
-`api/assist.js` is a server-side endpoint for selected-text Translate and Explain. It expects `OPENAI_API_KEY` on the backend and calls OpenAI's Responses API.
+`api/assist.js` is a server-side endpoint for selected-text Translate and Explain. It expects `OPENROUTER_API_KEY` on the backend and calls OpenRouter's Chat API.
 
 Test your key/model with:
 

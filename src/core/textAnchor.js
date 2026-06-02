@@ -19,10 +19,11 @@ export function createAnchorFromSelection(articleRoot, selection) {
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
 
   const range = normalizeSelectionRange(articleRoot, selection.getRangeAt(0));
-  if (!articleRoot.contains(range.commonAncestorContainer)) return null;
+  if (range.collapsed || !articleRoot.contains(range.commonAncestorContainer)) return null;
 
   const articleText = articleRoot.textContent || "";
   const selectedText = range.toString();
+  if (!selectedText.trim()) return null;
   const beforeRange = range.cloneRange();
   beforeRange.selectNodeContents(articleRoot);
   beforeRange.setEnd(range.startContainer, range.startOffset);
