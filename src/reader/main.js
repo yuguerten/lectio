@@ -24,55 +24,9 @@ const ASSIST_LANGUAGES = [
   { value: "zh-CN", label: "Chinese", flag: "🇨🇳", direction: "ltr" },
   { value: "ja", label: "Japanese", flag: "🇯🇵", direction: "ltr" }
 ];
-const LISTEN_MODELS = [
-  {
-    value: "hexgrad/kokoro-82m",
-    label: "Kokoro 82M",
-    voices: [
-      { value: "af_nova", label: "Nova" },
-      { value: "af_heart", label: "Heart" },
-      { value: "af_bella", label: "Bella" },
-      { value: "af_sarah", label: "Sarah" },
-      { value: "am_echo", label: "Echo" },
-      { value: "am_onyx", label: "Onyx" },
-      { value: "bf_emma", label: "Emma" },
-      { value: "bm_daniel", label: "Daniel" }
-    ]
-  },
-  {
-    value: "microsoft/mai-voice-2",
-    label: "MAI-Voice-2",
-    voices: [
-      { value: "en-US-Harper:MAI-Voice-2", label: "Harper" },
-      { value: "es-MX-Valeria:MAI-Voice-2", label: "Valeria" },
-      { value: "fr-FR-Soleil:MAI-Voice-2", label: "Soleil" },
-      { value: "de-DE-Klaus:MAI-Voice-2", label: "Klaus" }
-    ]
-  },
-  {
-    value: "x-ai/grok-voice-tts-1.0",
-    label: "Grok Voice",
-    voices: ["eve", "ara", "rex", "sal", "leo"].map((voice) => ({ value: voice, label: titleCase(voice) }))
-  },
-  {
-    value: "openai/gpt-4o-mini-tts-2025-12-15",
-    label: "OpenAI 4o mini",
-    voices: ["nova", "alloy", "shimmer", "echo", "fable", "onyx"].map((voice) => ({ value: voice, label: titleCase(voice) }))
-  },
-  {
-    value: "mistralai/voxtral-mini-tts-2603",
-    label: "Voxtral Mini",
-    voices: [
-      { value: "en_paul_neutral", label: "Paul" },
-      { value: "en_paul_happy", label: "Paul happy" },
-      { value: "gb_oliver_neutral", label: "Oliver" },
-      { value: "gb_jane_neutral", label: "Jane" },
-      { value: "fr_marie_neutral", label: "Marie" }
-    ]
-  }
-];
-const DEFAULT_LISTEN_MODEL = LISTEN_MODELS[0].value;
-const DEFAULT_LISTEN_VOICE = LISTEN_MODELS[0].voices[0].value;
+const LISTEN_MODEL = "hexgrad/kokoro-82m";
+const LISTEN_VOICE = "af_heart";
+const LISTEN_SPEEDS = [0.85, 1, 1.15, 1.3];
 const ASSIST_ENDPOINT = resolveAssistEndpoint();
 const NOTES_ENDPOINT = resolveBackendEndpoint("/api/notes");
 const SPEECH_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_SPEECH_ENDPOINT || "/api/speech");
@@ -91,13 +45,14 @@ const state = {
   focusMode: false,
   listening: false,
   listen: {
-    model: DEFAULT_LISTEN_MODEL,
-    voice: DEFAULT_LISTEN_VOICE,
+    model: LISTEN_MODEL,
+    voice: LISTEN_VOICE,
     speed: 1,
     audio: null,
     audioUrl: "",
     status: "idle",
     error: "",
+    volume: 0.82,
     dirty: true
   },
   assist: {
@@ -750,20 +705,18 @@ function renderListenPopover() {
   const isLoading = state.listen.status === "loading";
   const isPlaying = state.listen.status === "playing";
   popover.innerHTML = `
-    <section class="listen-player" aria-label="Audio player">
-      <div class="listen-player-main">
+    <section class="listen-player ${isPlaying ? "is-playing" : ""} ${isLoading ? "is-loading" : ""}" aria-label="Audio player">
+      <div class="listen-transport" aria-label="Playback controls">
+        <button id="listen-speed" class="listen-speed-control" type="button" aria-label="Playback speed">${formatListenSpeed(state.listen.speed)}</button>
+        <button class="listen-skip" type="button" data-skip="-15" aria-label="Skip back 15 seconds">${skipBack15Icon()}</button>
         <button id="listen-play" class="listen-play" type="button" aria-label="${isPlaying ? "Pause" : "Play"}" ${isLoading ? "disabled" : ""}>${isLoading ? spinnerIcon() : isPlaying ? pauseIcon() : playIcon()}</button>
-        <div class="listen-track">
-          <input id="listen-progress" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
-          <div class="listen-track-meta"><span id="listen-current">0:00</span><span id="listen-duration">0:00</span></div>
-        </div>
-        <span class="listen-volume" aria-hidden="true">${volumeIcon()}</span>
-        <button id="listen-menu-toggle" class="listen-menu-toggle" type="button" aria-label="Audio settings" aria-expanded="false" aria-controls="listen-menu">${moreVerticalIcon()}</button>
+        <button class="listen-skip" type="button" data-skip="15" aria-label="Skip forward 15 seconds">${skipForward15Icon()}</button>
+        <button id="listen-close" class="listen-window-button" type="button" aria-label="Close player">${xIcon()}</button>
       </div>
-      <div id="listen-menu" class="listen-player-controls" aria-label="Audio settings">
-        <label><span>Model</span><select id="listen-model">${listenModelOptions()}</select></label>
-        <label><span>Voice</span><select id="listen-voice">${listenVoiceOptions()}</select></label>
-        <label><span>Speed</span><select id="listen-speed"><option value="0.85" ${state.listen.speed === 0.85 ? "selected" : ""}>0.85x</option><option value="1" ${state.listen.speed === 1 ? "selected" : ""}>1x</option><option value="1.15" ${state.listen.speed === 1.15 ? "selected" : ""}>1.15x</option><option value="1.3" ${state.listen.speed === 1.3 ? "selected" : ""}>1.3x</option></select></label>
+      <div class="listen-track">
+        <span id="listen-current" class="listen-time">0:00</span>
+        <input id="listen-progress" class="listen-progress" type="range" min="0" max="1000" value="0" aria-label="Playback progress" />
+        <span id="listen-duration" class="listen-time">0:00</span>
       </div>
       ${state.listen.error ? `<p class="listen-error">${escapeHtml(state.listen.error)}</p>` : ""}
     </section>
@@ -772,35 +725,14 @@ function renderListenPopover() {
   updateListenProgress();
 }
 
-function listenModelOptions() {
-  return LISTEN_MODELS
-    .map((model) => `<option value="${escapeAttribute(model.value)}" ${state.listen.model === model.value ? "selected" : ""}>${escapeHtml(model.label)}</option>`)
-    .join("");
-}
-
-function listenVoiceOptions() {
-  const voices = listenModelById(state.listen.model)?.voices || LISTEN_MODELS[0].voices;
-  return voices
-    .map((voice) => `<option value="${escapeAttribute(voice.value)}" ${state.listen.voice === voice.value ? "selected" : ""}>${escapeHtml(voice.label)}</option>`)
-    .join("");
-}
-
-function listenModelById(id) {
-  return LISTEN_MODELS.find((model) => model.value === id);
-}
-
-function titleCase(value) {
-  const text = String(value || "");
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
-}
-
 function bindListenControls() {
   document.querySelector("#listen-play")?.addEventListener("click", toggleListenMode);
   document.querySelector("#listen-progress")?.addEventListener("input", seekListenAudio);
-  document.querySelector("#listen-menu-toggle")?.addEventListener("click", toggleListenMenu);
-  document.querySelector("#listen-model")?.addEventListener("change", (event) => updateListenConfig({ model: event.target.value }));
-  document.querySelector("#listen-voice")?.addEventListener("change", (event) => updateListenConfig({ voice: event.target.value }));
-  document.querySelector("#listen-speed")?.addEventListener("change", (event) => updateListenConfig({ speed: Number(event.target.value) || 1 }));
+  document.querySelector("#listen-close")?.addEventListener("click", closeListenPopover);
+  document.querySelectorAll("[data-skip]").forEach((button) => {
+    button.addEventListener("click", () => skipListenAudio(Number(button.dataset.skip) || 0));
+  });
+  document.querySelector("#listen-speed")?.addEventListener("click", cycleListenSpeed);
 }
 
 function normalizeListenError(message) {
@@ -811,20 +743,18 @@ function normalizeListenError(message) {
   return text || "Audio generation failed";
 }
 
-function toggleListenMenu() {
-  const popover = document.querySelector("#listen-popover");
-  const button = document.querySelector("#listen-menu-toggle");
-  const isOpen = !popover?.classList.contains("is-menu-open");
-  popover?.classList.toggle("is-menu-open", isOpen);
-  button?.setAttribute("aria-expanded", String(isOpen));
+function cycleListenSpeed() {
+  const currentIndex = LISTEN_SPEEDS.indexOf(state.listen.speed);
+  const nextSpeed = LISTEN_SPEEDS[(currentIndex + 1) % LISTEN_SPEEDS.length] || 1;
+  updateListenConfig({ speed: nextSpeed });
+}
+
+function formatListenSpeed(speed) {
+  return `${Number(speed).toFixed(2).replace(/\.00$/, "").replace(/0$/, "")}x`;
 }
 
 function updateListenConfig(patch) {
-  if (patch.model) {
-    const voices = listenModelById(patch.model)?.voices || [];
-    if (!voices.some((voice) => voice.value === state.listen.voice)) patch.voice = voices[0]?.value || DEFAULT_LISTEN_VOICE;
-  }
-  Object.assign(state.listen, patch, { dirty: true, error: "" });
+  Object.assign(state.listen, patch, { model: LISTEN_MODEL, voice: LISTEN_VOICE, dirty: true, error: "" });
   if (state.listen.audio) {
     state.listen.audio.pause();
     state.listen.audio.currentTime = 0;
@@ -883,6 +813,7 @@ async function generateListenAudio() {
   state.listen.audioUrl = URL.createObjectURL(blob);
   state.listen.audio = new Audio(state.listen.audioUrl);
   state.listen.audio.playbackRate = state.listen.speed;
+  state.listen.audio.volume = state.listen.volume;
   state.listen.audio.addEventListener("timeupdate", updateListenProgress);
   state.listen.audio.addEventListener("loadedmetadata", updateListenProgress);
   state.listen.audio.addEventListener("ended", () => { state.listen.status = "idle"; updateListenState(); renderListenPopover(); });
@@ -900,6 +831,13 @@ function seekListenAudio(event) {
   const audio = state.listen.audio;
   if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
   audio.currentTime = (Number(event.target.value) / 1000) * audio.duration;
+  updateListenProgress();
+}
+
+function skipListenAudio(delta) {
+  const audio = state.listen.audio;
+  if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+  audio.currentTime = Math.min(Math.max(audio.currentTime + delta, 0), audio.duration);
   updateListenProgress();
 }
 
@@ -1879,7 +1817,7 @@ function handleGlobalKeydown(event) {
     }
     if (key === "l") {
       event.preventDefault();
-      toggleListenMode();
+      openListenPopover();
       return;
     }
     if (key === "b") {
@@ -2087,8 +2025,12 @@ function headphonesIcon() {
   return svg('<path d="M4 14a8 8 0 0 1 16 0"/><path d="M4 14v4a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2"/><path d="M20 14v4a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2"/>', { size: 18 });
 }
 
-function volumeIcon() {
-  return svg('<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M16 9.5a4 4 0 0 1 0 5"/><path d="M19 7a8 8 0 0 1 0 10"/>', { size: 22, stroke: 2.2 });
+function skipBack15Icon() {
+  return svg('<path d="M8.2 7.4H4.8V4"/><path d="M5 7.2A8 8 0 1 1 4.6 14"/><text x="12" y="15" fill="currentColor" stroke="none" font-size="7.2" font-weight="800" text-anchor="middle" dominant-baseline="middle">15</text>', { size: 26, stroke: 1.9 });
+}
+
+function skipForward15Icon() {
+  return svg('<path d="M15.8 7.4h3.4V4"/><path d="M19 7.2A8 8 0 1 0 19.4 14"/><text x="12" y="15" fill="currentColor" stroke="none" font-size="7.2" font-weight="800" text-anchor="middle" dominant-baseline="middle">15</text>', { size: 26, stroke: 1.9 });
 }
 
 function moreVerticalIcon() {
