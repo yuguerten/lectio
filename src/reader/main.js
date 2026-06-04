@@ -9,7 +9,7 @@ import {
 } from "../core/annotations.js";
 import { createAnchorFromSelection, resolveAnchor } from "../core/textAnchor.js";
 import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore, createRemoteAnnotationStore } from "../core/localPersistence.js";
-import { renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
+import { getListenText, renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
 import { isImplicitHeadingText, isStandaloneCodeParagraph, isTerminalSnippet } from "./heuristics.js";
 
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
@@ -53,7 +53,10 @@ const state = {
     status: "idle",
     error: "",
     volume: 0.82,
-    dirty: true
+    dirty: true,
+    ttsText: "",
+    generationPromise: null,
+    prewarmStarted: false
   },
   assist: {
     selectedText: "",
@@ -200,8 +203,9 @@ function renderWorkspace() {
           <div class="article-listen-entry">
             <button id="article-listen-start" class="article-listen-button" type="button" aria-label="Listen to article">
               <span class="article-listen-icon" aria-hidden="true">${headphonesIcon()}</span>
-              <span>Listen to article (L)</span>
-              <small>${estimateReadingMinutes()} min</small>
+              <span>Listen to article</span>
+              <kbd class="shortcut-badge listen-shortcut" aria-hidden="true">L</kbd>
+              <small id="article-listen-duration">${listenButtonDurationLabel()}</small>
             </button>
           </div>
           <article id="article" class="article" tabindex="-1"></article>
@@ -275,6 +279,7 @@ function renderWorkspace() {
   renderArticleAndMargin();
   bindSelectionPopover();
   bindDrawingControls();
+  prewarmExtensionListening();
 }
 
 function renderArticleAndMargin(options = {}) {
@@ -698,10 +703,12 @@ function openListenPopover() {
   closeAssistPopover();
   renderListenPopover();
   document.querySelector("#listen-popover")?.classList.add("is-visible");
+  setListenDockVisible(true);
 }
 
 function closeListenPopover() {
   document.querySelector("#listen-popover")?.classList.remove("is-visible");
+  setListenDockVisible(false);
 }
 
 function renderListenPopover() {
@@ -794,15 +801,27 @@ async function toggleListenMode() {
 }
 
 async function generateListenAudio() {
-  const articleText = document.querySelector("#article")?.textContent?.trim();
+  if (state.listen.generationPromise) return state.listen.generationPromise;
+  state.listen.generationPromise = generateListenAudioRequest().finally(() => {
+    state.listen.generationPromise = null;
+  });
+  return state.listen.generationPromise;
+}
+
+async function generateListenAudioRequest() {
+  const articleRoot = document.querySelector("#article");
+  const articleText = getListenText(articleRoot);
   if (!articleText) throw new Error("No article text to read");
+  const ttsText = articleText.slice(0, 12000);
+  state.listen.ttsText = ttsText;
   state.listen.status = "loading";
   state.listen.error = "";
   renderListenPopover();
+  updateListenState();
   const response = await fetch(SPEECH_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: articleText.slice(0, 12000), model: state.listen.model, voice: state.listen.voice, speed: state.listen.speed })
+    body: JSON.stringify({ text: ttsText, model: state.listen.model, voice: state.listen.voice, speed: state.listen.speed })
   });
   if (!response.ok) {
     let message = "Audio generation failed";
@@ -818,13 +837,40 @@ async function generateListenAudio() {
   revokeListenAudio();
   state.listen.audioUrl = URL.createObjectURL(blob);
   state.listen.audio = new Audio(state.listen.audioUrl);
+  state.listen.audio.preload = "metadata";
   state.listen.audio.playbackRate = state.listen.speed;
   state.listen.audio.volume = state.listen.volume;
   state.listen.audio.addEventListener("timeupdate", updateListenProgress);
   state.listen.audio.addEventListener("loadedmetadata", updateListenProgress);
-  state.listen.audio.addEventListener("ended", () => { state.listen.status = "idle"; updateListenState(); renderListenPopover(); });
+  state.listen.audio.load();
+  state.listen.audio.addEventListener("ended", () => {
+    state.listen.status = "idle";
+    updateListenState();
+    renderListenPopover();
+  });
   state.listen.dirty = false;
   state.listen.status = "paused";
+  updateListenState();
+  renderListenPopover();
+}
+
+function prewarmExtensionListening() {
+  if (state.listen.prewarmStarted || !isExtensionReader()) return;
+  state.listen.prewarmStarted = true;
+  const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 600));
+  schedule(() => {
+    if (!state.listen.audio && state.listen.dirty && state.listen.status === "idle") {
+      generateListenAudio().catch((error) => {
+        state.listen.status = "idle";
+        state.listen.error = normalizeListenError(error.message);
+        updateListenState();
+      });
+    }
+  });
+}
+
+function isExtensionReader() {
+  return window.location.protocol === "chrome-extension:";
 }
 
 function revokeListenAudio() {
@@ -861,6 +907,23 @@ function updateListenProgress() {
   }
   if (currentLabel) currentLabel.textContent = formatListenTime(current);
   if (durationLabel) durationLabel.textContent = formatListenTime(duration);
+  updateListenButtonDuration(duration);
+}
+
+function listenButtonDurationLabel(duration = Number.isFinite(state.listen.audio?.duration) ? state.listen.audio.duration : 0) {
+  if (Number.isFinite(duration) && duration > 0) return formatListenTime(duration);
+  if (isListenPreparing()) return "Preparing";
+  return `${estimateReadingMinutes()} min`;
+}
+
+function isListenPreparing() {
+  return state.listen.status === "loading" || Boolean(state.listen.generationPromise);
+}
+
+function updateListenButtonDuration(duration) {
+  const label = document.querySelector("#article-listen-duration");
+  if (label) label.textContent = listenButtonDurationLabel(duration);
+  document.querySelector("#article-listen-start")?.classList.toggle("is-preparing", isListenPreparing());
 }
 
 function formatListenTime(seconds) {
@@ -870,10 +933,15 @@ function formatListenTime(seconds) {
   return `${minutes}:${remainder}`;
 }
 
+function setListenDockVisible(visible) {
+  document.querySelector(".workspace")?.classList.toggle("has-listen-player", Boolean(visible));
+}
+
 function updateListenState() {
   const active = state.listen.status === "playing" || state.listen.status === "loading";
   document.querySelector("#article-listen-start")?.classList.toggle("is-active", active);
   document.querySelector("#article-listen-start")?.setAttribute("aria-pressed", String(active));
+  updateListenButtonDuration();
 }
 function handleHighlightTool() {
   if (state.selectionAnchor) {
@@ -1011,7 +1079,18 @@ function assistResultTemplate(content, options = {}) {
   const direction = assistResultDirection(mode);
   if (options.loading) return assistSkeletonTemplate(mode, direction);
   if (!content) return "";
-  return `<div class="assist-result ${options.error ? "is-error" : ""}" dir="${direction}">${escapeHtml(content)}</div>`;
+  return `<div class="assist-result ${options.error ? "is-error" : ""}" dir="${direction}">${escapeHtml(normalizeAssistDisplayText(content))}</div>`;
+}
+
+function normalizeAssistDisplayText(text) {
+  return String(text || "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\s+[—–-]{2,}\s+/g, ", ")
+    .replace(/\s+[—–]\s+/g, ", ")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .trim();
 }
 
 function assistSkeletonTemplate(mode, direction = "ltr") {

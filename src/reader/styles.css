@@ -581,6 +581,10 @@ svg {
   background: transparent;
 }
 
+.workspace.has-listen-player .paper-shell {
+  padding-bottom: max(180px, calc(48px + env(safe-area-inset-bottom)));
+}
+
 
 .article-listen-entry {
   display: flex;
@@ -590,6 +594,7 @@ svg {
 }
 
 .article-listen-button {
+  position: relative;
   gap: 9px;
   min-height: 44px;
   padding: 0 14px 0 12px;
@@ -611,15 +616,49 @@ svg {
   box-shadow: 0 12px 30px rgba(38, 95, 143, 0.14);
 }
 
+.article-listen-button.is-preparing {
+  border-color: rgba(38, 95, 143, 0.58);
+  background: linear-gradient(110deg, rgba(255, 253, 248, 0.94), rgba(244, 249, 252, 0.98), rgba(255, 253, 248, 0.94));
+  background-size: 220% 100%;
+  animation: listen-button-preparing 1.8s ease-in-out infinite;
+}
+
 .article-listen-icon {
   display: inline-flex;
 }
 
+.article-listen-button .listen-shortcut {
+  position: static;
+  margin-left: -2px;
+}
+
 .article-listen-button small {
-  padding-left: 3px;
+  display: inline-grid;
+  min-width: 58px;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(38, 95, 143, 0.06);
   color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+
+.article-listen-button.is-preparing small {
+  position: relative;
+  color: color-mix(in srgb, var(--anchor-blue) 62%, var(--text-muted));
+}
+
+.article-listen-button.is-preparing small::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(38, 95, 143, 0.16), transparent);
+  transform: translateX(-120%);
+  animation: listen-chip-sheen 1.35s ease-in-out infinite;
+  content: "";
 }
 
 .workspace.theme-night .article-listen-button {
@@ -3370,6 +3409,16 @@ textarea:focus-visible {
     linear-gradient(135deg, #05070a 0%, #10151c 45%, #050505 100%);
 }
 
+
+@keyframes listen-button-preparing {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes listen-chip-sheen {
+  to { transform: translateX(120%); }
+}
+
 @keyframes listen-spin {
   to { transform: rotate(360deg); }
 }
@@ -3396,7 +3445,9 @@ textarea:focus-visible {
   .listen-player.is-playing::before,
   .listen-player.is-loading::before,
   .listen-title-marquee span,
-  .listen-play:disabled svg {
+  .listen-play:disabled svg,
+  .article-listen-button.is-preparing,
+  .article-listen-button.is-preparing small::after {
     animation: none;
   }
 }
