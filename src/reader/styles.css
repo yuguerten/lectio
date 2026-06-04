@@ -581,6 +581,57 @@ svg {
   background: transparent;
 }
 
+
+.article-listen-entry {
+  display: flex;
+  justify-content: flex-end;
+  max-width: var(--article-width, 760px);
+  margin: 0 auto 22px;
+}
+
+.article-listen-button {
+  gap: 9px;
+  min-height: 44px;
+  padding: 0 14px 0 12px;
+  border: 1px solid rgba(38, 95, 143, 0.38);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.9);
+  color: var(--anchor-blue);
+  box-shadow: 0 10px 26px rgba(35, 30, 20, 0.08);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.article-listen-button:hover,
+.article-listen-button:focus-visible,
+.article-listen-button.is-active {
+  border-color: rgba(38, 95, 143, 0.7);
+  background: #ffffff;
+  color: var(--anchor-blue);
+  box-shadow: 0 12px 30px rgba(38, 95, 143, 0.14);
+}
+
+.article-listen-icon {
+  display: inline-flex;
+}
+
+.article-listen-button small {
+  padding-left: 3px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.workspace.theme-night .article-listen-button {
+  border-color: rgba(139, 190, 235, 0.42);
+  background: rgba(25, 28, 30, 0.9);
+  color: #9bc9ef;
+}
+
+.workspace.theme-night .article-listen-button small {
+  color: rgba(244, 239, 229, 0.62);
+}
+
 .article {
   position: relative;
   z-index: 1;
@@ -914,8 +965,8 @@ svg {
 }
 
 .settings-close {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
   padding: 0;
   border-radius: 999px;
@@ -1143,7 +1194,9 @@ svg {
   cursor: crosshair;
 }
 
-.paper-shell.is-drawing .article {
+.paper-shell.is-drawing 
+
+.article {
   user-select: none;
 }
 
@@ -2264,6 +2317,8 @@ textarea:focus-visible {
   color: var(--ink-secondary);
 }
 
+
+
 .article {
   color: var(--ink);
   font-family: Georgia, "Source Serif 4", Charter, serif;
@@ -2621,7 +2676,9 @@ textarea:focus-visible {
     padding: 28px 12px;
   }
 
-  .article {
+  
+
+.article {
     font-size: max(20px, var(--article-size, 21px));
     line-height: max(1.65, var(--article-line, 1.75));
   }
@@ -2770,7 +2827,9 @@ textarea:focus-visible {
     box-shadow: none;
   }
 
-  .article {
+  
+
+.article {
     max-width: none !important;
     margin: 0;
     color: #171717 !important;
@@ -3000,7 +3059,7 @@ textarea:focus-visible {
   right: 32px;
   bottom: 28px;
   left: auto;
-  width: min(360px, calc(100vw - 24px));
+  width: min(340px, calc(100vw - 24px));
   padding: 0;
   border: 0;
   border-radius: 12px;
@@ -3051,8 +3110,67 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  min-height: 30px;
+  gap: 8px;
+  min-height: 42px;
+}
+
+.listen-now {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  min-width: 0;
+  width: 118px;
+  margin-right: 2px;
+}
+
+.listen-now > span {
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: rgba(55, 137, 205, 0.22);
+  color: #9bd0ff;
+}
+
+.listen-now strong,
+.listen-now small {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.listen-now strong {
+  color: #f4f7fb;
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.listen-now small {
+  color: rgba(232, 238, 247, 0.72);
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.listen-title-marquee {
+  display: flex;
+  max-width: 100%;
+  mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 16px), transparent 100%);
+}
+
+.listen-title-marquee span {
+  flex: 0 0 auto;
+  padding-right: 24px;
+  animation: listen-title-scroll 11s linear infinite;
+}
+
+.listen-player:hover .listen-title-marquee span,
+.listen-player:focus-within .listen-title-marquee span {
+  animation-duration: 7s;
 }
 
 .listen-speed-control {
@@ -3261,6 +3379,11 @@ textarea:focus-visible {
   to { background-position: 100% 50%; }
 }
 
+@keyframes listen-title-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
 @keyframes listen-sheen {
   0%, 35% { opacity: 0; translate: -70% 0; }
   70% { opacity: 0.5; }
@@ -3272,6 +3395,7 @@ textarea:focus-visible {
   .listen-player.is-loading,
   .listen-player.is-playing::before,
   .listen-player.is-loading::before,
+  .listen-title-marquee span,
   .listen-play:disabled svg {
     animation: none;
   }

@@ -197,16 +197,18 @@ function renderWorkspace() {
 
       <div class="study-layout">
         <section class="paper-shell">
+          <div class="article-listen-entry">
+            <button id="article-listen-start" class="article-listen-button" type="button" aria-label="Listen to article">
+              <span class="article-listen-icon" aria-hidden="true">${headphonesIcon()}</span>
+              <span>Listen to article (L)</span>
+              <small>${estimateReadingMinutes()} min</small>
+            </button>
+          </div>
           <article id="article" class="article" tabindex="-1"></article>
           <canvas id="drawing-canvas" class="drawing-canvas" aria-label="Drawing layer"></canvas>
         </section>
         <section id="print-notes" class="print-notes" aria-hidden="true"></section>
       </div>
-
-      <nav class="reader-tools" aria-label="Reader tools">
-        <button id="listen-toggle" class="reader-tool" type="button" title="Listen (L)" aria-pressed="false">${headphonesIcon()}<span>Listen</span><kbd class="shortcut-badge reader-shortcut" aria-hidden="true">L</kbd></button>
-        <button id="focus-toggle" class="reader-tool" type="button" title="Focus mode" aria-pressed="false">${focusIcon()}<span>Focus</span></button>
-      </nav>
 
       <div id="drawing-tools" class="drawing-tools" aria-label="Drawing tools">
         <button class="icon-tool is-active" type="button" data-tool="pen" title="Pen (P)">${penIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">P</kbd></button>
@@ -239,8 +241,7 @@ function renderWorkspace() {
   document.querySelector("#typography-toggle").addEventListener("click", openTypographyPopover);
   document.querySelector("#type-close").addEventListener("click", closeTypographyPopover);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
-  document.querySelector("#focus-toggle")?.addEventListener("click", toggleFocusMode);
-  document.querySelector("#listen-toggle")?.addEventListener("click", openListenPopover);
+  document.querySelector("#article-listen-start")?.addEventListener("click", startArticleListening);
   document.querySelector("#highlight-tool")?.addEventListener("click", handleHighlightTool);
   document.querySelector("#bookmark-tool")?.addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
   document.querySelector("#bookmark-top").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
@@ -659,7 +660,6 @@ function applyReaderPreferences() {
   }
   updateTypographyLabels();
   document.querySelector("#theme-toggle")?.setAttribute("aria-pressed", String(state.theme === "night"));
-  document.querySelector("#focus-toggle")?.setAttribute("aria-pressed", String(state.focusMode));
 }
 
 function updateTypographyLabels() {
@@ -682,6 +682,11 @@ function toggleFocusMode() {
   state.focusMode = !state.focusMode;
   applyReaderPreferences();
   updateReadingProgress();
+}
+
+async function startArticleListening() {
+  openListenPopover();
+  if (state.listen.status !== "playing") await toggleListenMode();
 }
 
 function openListenPopover() {
@@ -707,6 +712,7 @@ function renderListenPopover() {
   popover.innerHTML = `
     <section class="listen-player ${isPlaying ? "is-playing" : ""} ${isLoading ? "is-loading" : ""}" aria-label="Audio player">
       <div class="listen-transport" aria-label="Playback controls">
+        <div class="listen-now" aria-hidden="true"><span>${audioWaveIcon()}</span><strong>Listening</strong><small class="listen-title-marquee"><span>${escapeHtml(state.article?.title || "Article")}</span><span>${escapeHtml(state.article?.title || "Article")}</span></small></div>
         <button id="listen-speed" class="listen-speed-control" type="button" aria-label="Playback speed">${formatListenSpeed(state.listen.speed)}</button>
         <button class="listen-skip" type="button" data-skip="-15" aria-label="Skip back 15 seconds">${skipBack15Icon()}</button>
         <button id="listen-play" class="listen-play" type="button" aria-label="${isPlaying ? "Pause" : "Play"}" ${isLoading ? "disabled" : ""}>${isLoading ? spinnerIcon() : isPlaying ? pauseIcon() : playIcon()}</button>
@@ -866,8 +872,8 @@ function formatListenTime(seconds) {
 
 function updateListenState() {
   const active = state.listen.status === "playing" || state.listen.status === "loading";
-  document.querySelector("#listen-toggle")?.classList.toggle("is-active", active);
-  document.querySelector("#listen-toggle")?.setAttribute("aria-pressed", String(active));
+  document.querySelector("#article-listen-start")?.classList.toggle("is-active", active);
+  document.querySelector("#article-listen-start")?.setAttribute("aria-pressed", String(active));
 }
 function handleHighlightTool() {
   if (state.selectionAnchor) {
@@ -1309,7 +1315,7 @@ function closeFloatingCommentOnOutsideClick(event) {
   if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
   if (!event.target.closest?.(".typography-popover, #typography-toggle")) closeTypographyPopover();
   if (!event.target.closest?.(".auth-popover, #account-toggle")) closeAuthPopover();
-  if (!event.target.closest?.(".listen-popover, #listen-toggle")) closeListenPopover();
+  if (!event.target.closest?.(".listen-popover, #article-listen-start")) closeListenPopover();
   if (event.target.closest?.(".assist-popover, .listen-popover, .comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
   closeAssistPopover();
@@ -2023,6 +2029,10 @@ function spinnerIcon() {
 
 function headphonesIcon() {
   return svg('<path d="M4 14a8 8 0 0 1 16 0"/><path d="M4 14v4a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2"/><path d="M20 14v4a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2"/>', { size: 18 });
+}
+
+function audioWaveIcon() {
+  return svg('<path d="M4 14V10"/><path d="M8 18V6"/><path d="M12 21V3"/><path d="M16 18V6"/><path d="M20 14V10"/>', { size: 20, stroke: 2.1 });
 }
 
 function skipBack15Icon() {
