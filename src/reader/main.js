@@ -628,7 +628,7 @@ function updateSmartOutlineControls() {
   action.onclick = () => triggerSmartOutlineLoad({ force: true });
 
   if (state.smartOutline.status === "loading") {
-    status.textContent = "Generating semantic sections...";
+    status.innerHTML = smartOutlineSkeletonTemplate();
   } else if (state.smartOutline.status === "ready") {
     status.textContent = "AI outline";
   } else if (state.smartOutline.status === "error") {
@@ -638,6 +638,15 @@ function updateSmartOutlineControls() {
   } else {
     status.textContent = "";
   }
+}
+
+function smartOutlineSkeletonTemplate() {
+  const widths = ["78%", "94%", "66%", "88%", "54%"];
+  return `
+    <span class="toc-skeleton" aria-label="Generating semantic sections">
+      ${widths.map((width) => `<span style="--skeleton-width:${width}"></span>`).join("")}
+    </span>
+  `;
 }
 
 function updateReadingProgress() {

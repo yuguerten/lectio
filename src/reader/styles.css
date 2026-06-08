@@ -481,6 +481,23 @@ svg {
   line-height: 1.4;
 }
 
+.toc-skeleton {
+  display: grid;
+  gap: 8px;
+  padding: 2px 4px 0 0;
+  animation: assist-content-in 180ms ease both;
+}
+
+.toc-skeleton span {
+  display: block;
+  width: var(--skeleton-width, 86%);
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(33, 91, 138, 0.08), rgba(33, 91, 138, 0.16), rgba(33, 91, 138, 0.08));
+  background-size: 220% 100%;
+  animation: assist-skeleton-sheen 1200ms ease-in-out infinite;
+}
+
 .toc-list {
   display: grid;
   position: relative;
