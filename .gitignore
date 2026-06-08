@@ -3,8 +3,12 @@ dist/
 .DS_Store
 
 prds
+
+# Local environment and generated data
 .env
 .env.local
 .env.*.local
-
 data/
+
+# Keep the committed template safe for contributors.
+!.env.example
