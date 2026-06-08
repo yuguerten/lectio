@@ -8,7 +8,14 @@ import {
   upsertAnnotation
 } from "../core/annotations.js";
 import { createAnchorFromSelection, resolveAnchor } from "../core/textAnchor.js";
-import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore, createRemoteAnnotationStore } from "../core/localPersistence.js";
+import { createSmartOutlineChunks, createSmartOutlineSignature } from "../core/smartOutline.js";
+import {
+  createAnnotationStore,
+  createChromeStorageAdapter,
+  createDrawingStore,
+  createRemoteAnnotationStore,
+  createSmartOutlineStore
+} from "../core/localPersistence.js";
 import { getListenText, renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
 import { isImplicitHeadingText, isStandaloneCodeParagraph, isTerminalSnippet } from "./heuristics.js";
 
@@ -30,6 +37,7 @@ const LISTEN_SPEEDS = [0.85, 1, 1.15, 1.3];
 const ASSIST_ENDPOINT = resolveAssistEndpoint();
 const NOTES_ENDPOINT = resolveBackendEndpoint("/api/notes");
 const SPEECH_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_SPEECH_ENDPOINT || "/api/speech");
+const SMART_OUTLINE_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_OUTLINE_ENDPOINT || "/api/outline");
 const state = {
   article: null,
   annotations: [],
@@ -64,6 +72,15 @@ const state = {
     targetLanguage: "en",
     requestId: 0
   },
+  smartOutline: {
+    status: "idle",
+    sections: [],
+    chunks: [],
+    signature: "",
+    cacheLoaded: false,
+    error: "",
+    requestId: 0
+  },
   toc: [],
   typography: {
     size: 21,
@@ -93,6 +110,7 @@ const storageAdapter = createChromeStorageAdapter();
 const localAnnotationStore = createAnnotationStore(storageAdapter);
 let store = localAnnotationStore;
 const drawingStore = createDrawingStore(storageAdapter);
+const smartOutlineStore = createSmartOutlineStore(storageAdapter);
 const app = document.querySelector("#app");
 
 boot().catch((error) => {
@@ -162,8 +180,12 @@ function renderWorkspace() {
       </header>
       <aside class="reader-sidebar" aria-label="On this page">
         <div class="toc-panel">
-          <p class="toc-heading">On this page</p>
+          <div class="toc-header">
+            <p class="toc-heading">On this page</p>
+            <button id="smart-outline-action" class="toc-action" type="button">Smart outline</button>
+          </div>
           <nav id="toc-list" class="toc-list"></nav>
+          <p id="smart-outline-status" class="toc-status" role="status" aria-live="polite"></p>
         </div>
       </aside>
 
@@ -286,6 +308,7 @@ function renderArticleAndMargin(options = {}) {
   const articleRoot = document.querySelector("#article");
   articleRoot.innerHTML = sanitizeArticleHtml(state.article.html);
   prepareArticleHeadings(articleRoot);
+  updateSmartOutlineChunks(articleRoot);
   enhanceCodeBlocks(articleRoot);
   const articleText = articleRoot.textContent || "";
   const visible = filterAnnotations(state.annotations, state.filters)
@@ -302,6 +325,7 @@ function renderArticleAndMargin(options = {}) {
   markSearchActive();
   updateSearchCount();
   renderTableOfContents();
+  triggerSmartOutlineLoad();
   renderPrintNotes();
   markActive();
   for (const image of articleRoot.querySelectorAll("img")) {
@@ -431,6 +455,138 @@ function normalizeTocText(text) {
     .toLowerCase();
 }
 
+function updateSmartOutlineChunks(articleRoot) {
+  const blocks = [...articleRoot.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre")]
+    .filter((element) => !element.closest(".article-meta, .code-card, form, nav, button, .comment-marker"))
+    .map((element, index) => {
+      if (!element.id) element.id = `openread-block-${index + 1}`;
+      return {
+        id: element.id,
+        tagName: element.tagName,
+        text: element.textContent || ""
+      };
+    });
+  const chunks = createSmartOutlineChunks(blocks);
+  const signature = createSmartOutlineSignature(chunks);
+  if (signature !== state.smartOutline.signature) {
+    state.smartOutline = {
+      status: "idle",
+      sections: [],
+      chunks,
+      signature,
+      cacheLoaded: false,
+      error: "",
+      requestId: state.smartOutline.requestId + 1
+    };
+    return;
+  }
+  state.smartOutline.chunks = chunks;
+}
+
+function smartOutlineShouldAutoGenerate() {
+  return state.smartOutline.chunks.length >= 3 && state.toc.length < 3;
+}
+
+async function triggerSmartOutlineLoad(options = {}) {
+  const force = Boolean(options.force);
+  if (!state.article || !state.smartOutline.chunks.length) return;
+  if (state.smartOutline.status === "loading") return;
+  if (!force && state.smartOutline.cacheLoaded && !smartOutlineShouldAutoGenerate()) return;
+
+  const requestId = ++state.smartOutline.requestId;
+  const shouldGenerate = force || smartOutlineShouldAutoGenerate();
+
+  if (!force && !state.smartOutline.cacheLoaded) {
+    const cached = await smartOutlineStore.load(state.article.id, state.smartOutline.signature);
+    if (requestId !== state.smartOutline.requestId) return;
+    state.smartOutline.cacheLoaded = true;
+    if (cached?.sections?.length) {
+      state.smartOutline.status = "ready";
+      state.smartOutline.sections = cached.sections;
+      state.smartOutline.error = "";
+      renderTableOfContents();
+      updateReadingProgress();
+      return;
+    }
+  }
+
+  if (!shouldGenerate) {
+    renderTableOfContents();
+    return;
+  }
+
+  state.smartOutline.status = "loading";
+  state.smartOutline.error = "";
+  renderTableOfContents();
+
+  try {
+    const payload = await fetchSmartOutline();
+    if (requestId !== state.smartOutline.requestId) return;
+    const sections = mapSmartOutlineSections(payload.sections || []);
+    if (!sections.length) throw new Error("Smart outline did not return usable sections.");
+    state.smartOutline.status = "ready";
+    state.smartOutline.sections = sections;
+    state.smartOutline.cacheLoaded = true;
+    state.smartOutline.error = "";
+    await smartOutlineStore.save(state.article.id, {
+      signature: state.smartOutline.signature,
+      sections,
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    if (requestId !== state.smartOutline.requestId) return;
+    state.smartOutline.status = "error";
+    state.smartOutline.error = error.message || "Smart outline is unavailable.";
+    if (force) showReaderToast(state.smartOutline.error);
+  }
+
+  renderTableOfContents();
+  updateReadingProgress();
+}
+
+async function fetchSmartOutline() {
+  const response = await fetch(SMART_OUTLINE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: state.article.title,
+      url: state.article.pageUrl || state.article.url,
+      chunks: state.smartOutline.chunks.map(({ id, targetId, text }) => ({ id, targetId, text }))
+    })
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    const message = payload.error || `Smart outline failed with ${response.status}`;
+    if (message === "API route not found.") {
+      throw new Error("Smart outline backend is not running the latest /api/outline route. Restart npm run serve and rebuild/reload the extension.");
+    }
+    throw new Error(message);
+  }
+  return payload;
+}
+
+function mapSmartOutlineSections(sections) {
+  const chunksById = new Map(state.smartOutline.chunks.map((chunk) => [chunk.id, chunk]));
+  return sections
+    .map((section, index) => {
+      const chunk = chunksById.get(section.startChunkId);
+      if (!chunk || !document.getElementById(chunk.targetId)) return null;
+      return {
+        id: chunk.targetId,
+        text: section.title || `Section ${index + 1}`,
+        summary: section.summary || "",
+        level: "smart",
+        index
+      };
+    })
+    .filter(Boolean);
+}
+
+function visibleTocItems() {
+  return state.smartOutline.status === "ready" && state.smartOutline.sections.length ? state.smartOutline.sections : state.toc;
+}
+
 function markArticleMetadata(articleRoot) {
   articleRoot.querySelectorAll("p").forEach((paragraph) => {
     const text = (paragraph.textContent || "").trim();
@@ -441,14 +597,16 @@ function markArticleMetadata(articleRoot) {
 function renderTableOfContents() {
   const tocList = document.querySelector("#toc-list");
   if (!tocList) return;
-  if (!state.toc.length) {
+  const items = visibleTocItems();
+  updateSmartOutlineControls();
+  if (!items.length) {
     tocList.innerHTML = `<span class="toc-empty">Article</span>`;
     return;
   }
-  tocList.innerHTML = state.toc
+  tocList.innerHTML = items
     .map(
       (item) =>
-        `<a href="#${escapeAttribute(item.id)}" class="toc-link ${item.level === "h3" ? "is-nested" : ""}" data-section-id="${escapeAttribute(item.id)}"><span aria-hidden="true"></span>${escapeHtml(item.text)}</a>`
+        `<a href="#${escapeAttribute(item.id)}" class="toc-link ${item.level === "h3" ? "is-nested" : ""} ${item.level === "smart" ? "is-smart" : ""}" data-section-id="${escapeAttribute(item.id)}" title="${escapeAttribute(item.summary || item.text)}"><span aria-hidden="true"></span>${escapeHtml(item.text)}</a>`
     )
     .join("");
   tocList.querySelectorAll("a").forEach((link) => {
@@ -457,6 +615,29 @@ function renderTableOfContents() {
       document.getElementById(link.dataset.sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+}
+
+function updateSmartOutlineControls() {
+  const action = document.querySelector("#smart-outline-action");
+  const status = document.querySelector("#smart-outline-status");
+  if (!action || !status) return;
+  const canOutline = state.smartOutline.chunks.length >= 2;
+  action.hidden = !canOutline;
+  action.disabled = state.smartOutline.status === "loading";
+  action.textContent = state.smartOutline.status === "ready" ? "Regenerate" : "Smart outline";
+  action.onclick = () => triggerSmartOutlineLoad({ force: true });
+
+  if (state.smartOutline.status === "loading") {
+    status.textContent = "Generating semantic sections...";
+  } else if (state.smartOutline.status === "ready") {
+    status.textContent = "AI outline";
+  } else if (state.smartOutline.status === "error") {
+    status.textContent = "Using detected headings";
+  } else if (smartOutlineShouldAutoGenerate()) {
+    status.textContent = "Detected headings are sparse";
+  } else {
+    status.textContent = "";
+  }
 }
 
 function updateReadingProgress() {
@@ -469,7 +650,7 @@ function updateReadingProgress() {
   const percent = Math.round(progress * 100);
   document.querySelector("#top-progress-bar")?.style.setProperty("width", `${percent}%`);
   let activeIndex = 0;
-  state.toc.forEach((item, index) => {
+  visibleTocItems().forEach((item, index) => {
     const heading = document.getElementById(item.id);
     if (heading && heading.getBoundingClientRect().top <= 150) activeIndex = index;
   });

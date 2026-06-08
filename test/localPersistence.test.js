@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAnnotationStore, createDrawingStore, createMemoryStorageAdapter } from "../src/core/localPersistence.js";
+import { createAnnotationStore, createDrawingStore, createMemoryStorageAdapter, createSmartOutlineStore } from "../src/core/localPersistence.js";
 
 test("saves, loads, and deletes annotations through an adapter", async () => {
   const store = createAnnotationStore(createMemoryStorageAdapter());
@@ -23,4 +23,17 @@ test("saves, loads, and deletes drawing strokes through an adapter", async () =>
 
   await store.delete("https://example.com/post");
   assert.deepEqual(await store.load("https://example.com/post"), []);
+});
+
+
+test("saves and invalidates smart outlines by signature", async () => {
+  const store = createSmartOutlineStore(createMemoryStorageAdapter());
+  const outline = { signature: "abc", sections: [{ id: "p1", text: "Intro" }] };
+
+  await store.save("https://example.com/post", outline);
+  assert.deepEqual(await store.load("https://example.com/post", "abc"), outline);
+  assert.equal(await store.load("https://example.com/post", "changed"), null);
+
+  await store.delete("https://example.com/post");
+  assert.equal(await store.load("https://example.com/post", "abc"), null);
 });

@@ -64,6 +64,26 @@ export function createDrawingStore(adapter) {
   };
 }
 
+
+export function createSmartOutlineStore(adapter) {
+  return {
+    async load(articleId, signature) {
+      const value = await adapter.get(smartOutlineKeyFor(articleId));
+      if (!value || value.signature !== signature || !Array.isArray(value.sections)) return null;
+      return value;
+    },
+
+    async save(articleId, outline) {
+      await adapter.set(smartOutlineKeyFor(articleId), outline);
+      return outline;
+    },
+
+    async delete(articleId) {
+      await adapter.remove(smartOutlineKeyFor(articleId));
+    }
+  };
+}
+
 export function createChromeStorageAdapter(area = globalThis.chrome?.storage?.local) {
   if (!area) {
     throw new Error("Chrome storage is unavailable.");
@@ -103,6 +123,10 @@ function keyFor(articleId) {
 
 function drawingKeyFor(articleId) {
   return `openread:drawings:${articleId}`;
+}
+
+function smartOutlineKeyFor(articleId) {
+  return `openread:smartOutline:${articleId}`;
 }
 
 

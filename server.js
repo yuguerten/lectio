@@ -3,6 +3,7 @@ import { extname, join, normalize } from "node:path";
 import { readFile } from "node:fs/promises";
 import assistHandler from "./api/assist.js";
 import speechHandler from "./api/speech.js";
+import outlineHandler from "./api/outline.js";
 import { handleBackendApi } from "./api/backend.js";
 
 process.loadEnvFile?.(".env");
@@ -18,6 +19,11 @@ const server = createServer(async (request, response) => {
 
   if (request.url?.startsWith("/api/speech")) {
     await handleJsonApi(request, response, speechHandler);
+    return;
+  }
+
+  if (request.url?.startsWith("/api/outline")) {
+    await handleJsonApi(request, response, outlineHandler);
     return;
   }
 

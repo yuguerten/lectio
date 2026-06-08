@@ -11,6 +11,7 @@ The project also includes a small Node backend for optional account sync and Ope
 - Local annotation and drawing persistence through browser storage.
 - Optional account login with file-backed note sync.
 - Article search with keyboard shortcut support.
+- Smart Outline that uses an LLM to generate semantic sidebar sections when article headings are sparse.
 - Typography controls for text size, line height, and reading width.
 - Light/dark reader theme.
 - Drawing layer with pen, line, arrow, rectangle, ellipse, eraser, undo, redo, and color controls.
@@ -70,6 +71,7 @@ Available local routes include:
 - `/api/notes` for synced notes.
 - `/api/assist` for selected-text translate/explain.
 - `/api/speech` for article audio.
+- `/api/outline` for Smart Outline section generation.
 
 The file-backed backend stores account and note data in `data/openread.json` by default. Set `OPENREAD_DATA_FILE` if you want to use a different path.
 
@@ -92,6 +94,7 @@ OPENREAD_ALLOWED_ORIGIN=*
 OPENREAD_DATA_FILE=data/openread.json
 VITE_OPENREAD_ASSIST_ENDPOINT=/api/assist
 VITE_OPENREAD_SPEECH_ENDPOINT=/api/speech
+VITE_OPENREAD_OUTLINE_ENDPOINT=/api/outline
 ```
 
 Do not expose `OPENROUTER_API_KEY` through a `VITE_` variable. `VITE_` variables are bundled into browser code.
@@ -109,6 +112,7 @@ For local extension testing with the bundled backend, keep:
 ```sh
 VITE_OPENREAD_ASSIST_ENDPOINT=/api/assist
 VITE_OPENREAD_SPEECH_ENDPOINT=/api/speech
+VITE_OPENREAD_OUTLINE_ENDPOINT=/api/outline
 ```
 
 When loaded as an unpacked extension, relative API paths are resolved to the local backend at `http://127.0.0.1:8787`.
@@ -118,6 +122,7 @@ For a public build, point the extension at your deployed backend:
 ```sh
 VITE_OPENREAD_ASSIST_ENDPOINT=https://your-domain.com/api/assist \
 VITE_OPENREAD_SPEECH_ENDPOINT=https://your-domain.com/api/speech \
+VITE_OPENREAD_OUTLINE_ENDPOINT=https://your-domain.com/api/outline \
 npm run build
 ```
 
