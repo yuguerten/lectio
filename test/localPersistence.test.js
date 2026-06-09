@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAnnotationStore, createDrawingStore, createMemoryStorageAdapter, createSmartOutlineStore } from "../src/core/localPersistence.js";
+import {
+  createAnnotationStore,
+  createBookmarkStore,
+  createDrawingStore,
+  createMemoryStorageAdapter,
+  createSmartOutlineStore
+} from "../src/core/localPersistence.js";
 
 test("saves, loads, and deletes annotations through an adapter", async () => {
   const store = createAnnotationStore(createMemoryStorageAdapter());
@@ -36,4 +42,36 @@ test("saves and invalidates smart outlines by signature", async () => {
 
   await store.delete("https://example.com/post");
   assert.equal(await store.load("https://example.com/post", "abc"), null);
+});
+
+
+test("saves, lists, loads, and deletes bookmarked articles through an adapter", async () => {
+  const store = createBookmarkStore(createMemoryStorageAdapter());
+  const article = {
+    id: "https://example.com/post",
+    title: "Readable post",
+    url: "https://example.com/post",
+    pageUrl: "https://example.com/post?utm_source=test",
+    canonicalUrl: "https://example.com/post",
+    html: "<p>Hello</p>",
+    text: "Hello",
+    excerpt: "Hello",
+    byline: "Ada",
+    siteName: "Example"
+  };
+
+  const bookmark = await store.save(article);
+  assert.equal(bookmark.id, article.id);
+  assert.equal(bookmark.title, article.title);
+  assert.ok(bookmark.savedAt);
+  assert.deepEqual(await store.list(), [bookmark]);
+  assert.deepEqual(await store.load(article.id), { ...article, bookmarkedAt: bookmark.savedAt });
+
+  const updated = await store.save({ ...article, title: "Readable post updated" });
+  assert.deepEqual(await store.list(), [updated]);
+  assert.equal((await store.load(article.id)).title, "Readable post updated");
+
+  await store.delete(article.id);
+  assert.deepEqual(await store.list(), []);
+  assert.equal(await store.load(article.id), null);
 });

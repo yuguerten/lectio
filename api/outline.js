@@ -84,13 +84,21 @@ async function requestOutline({ apiKey, model, title, url, chunks }) {
   }
 
   if (!upstream.ok) {
-    const message = payload.error?.message || payload.error || payload.message || "OpenRouter outline request failed";
+    const message = friendlyOpenRouterError(upstream.status, payload);
     const error = new Error(message);
     error.status = upstream.status;
     throw error;
   }
 
   return payload.choices?.[0]?.message?.content || payload.output_text || payload.raw || "";
+}
+
+function friendlyOpenRouterError(status, payload) {
+  const message = payload.error?.message || payload.error || payload.message || "OpenRouter outline request failed";
+  if (status === 401) {
+    return "OpenRouter rejected OPENROUTER_API_KEY. Create or rotate the key in OpenRouter, update .env, then restart npm run serve.";
+  }
+  return message;
 }
 
 function sanitizeChunks(chunks) {
