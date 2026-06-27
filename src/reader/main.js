@@ -35,9 +35,9 @@ const LISTEN_MODEL = "hexgrad/kokoro-82m";
 const LISTEN_VOICE = "af_heart";
 const LISTEN_SPEEDS = [0.85, 1, 1.15, 1.3];
 const ASSIST_ENDPOINT = resolveAssistEndpoint();
-const SPEECH_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_SPEECH_ENDPOINT || "/api/speech");
-const SMART_OUTLINE_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_OUTLINE_ENDPOINT || "/api/outline");
-const LISTEN_AUDIO_CACHE_DB = "openread-listen-cache";
+const SPEECH_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_LECTIO_SPEECH_ENDPOINT || "/api/speech");
+const SMART_OUTLINE_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_LECTIO_OUTLINE_ENDPOINT || "/api/outline");
+const LISTEN_AUDIO_CACHE_DB = "lectio-listen-cache";
 const LISTEN_AUDIO_CACHE_STORE = "audio";
 const LISTEN_AUDIO_CACHE_LIMIT = 24;
 const state = {
@@ -135,7 +135,7 @@ async function loadArticleFromSession() {
   const sessionId = new URLSearchParams(window.location.search).get("session");
   if (!sessionId) throw new Error("Missing reader session.");
 
-  const key = `openread:session:${sessionId}`;
+  const key = `lectio:session:${sessionId}`;
   const result = await chrome.storage.session.get(key);
   const article = result[key];
   if (!article) throw new Error("The reader session expired. Reopen the article from the extension button.");
@@ -151,7 +151,7 @@ function renderWorkspace() {
         <div class="reader-meta">
           <div class="brand-block">
             <span class="brand-mark" aria-hidden="true">${bookIcon()}</span>
-            <span class="brand-name">OpenRead</span>
+            <span class="brand-name">Lectio</span>
           </div>
           <div class="appbar-divider" aria-hidden="true"></div>
           <div class="title-block">
@@ -321,7 +321,7 @@ async function handleBookmarkArticle() {
     renderSavedArticles();
     showReaderToast("Article saved locally in this browser");
   } catch (error) {
-    showReaderToast(error.message || "OpenRead could not save this article");
+    showReaderToast(error.message || "Lectio could not save this article");
   }
 }
 
@@ -432,7 +432,7 @@ function prepareArticleHeadings(articleRoot) {
     headings = collectTocHeadings(articleRoot);
   }
   state.toc = headings.slice(0, 12).map((heading, index) => {
-    if (!heading.id) heading.id = `openread-section-${index + 1}`;
+    if (!heading.id) heading.id = `lectio-section-${index + 1}`;
     return {
       id: heading.id,
       text: (heading.textContent || `Section ${index + 1}`).trim(),
@@ -498,7 +498,7 @@ function updateSmartOutlineChunks(articleRoot) {
   const blocks = [...articleRoot.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre")]
     .filter((element) => !element.closest(".article-meta, .code-card, form, nav, button, .comment-marker"))
     .map((element, index) => {
-      if (!element.id) element.id = `openread-block-${index + 1}`;
+      if (!element.id) element.id = `lectio-block-${index + 1}`;
       return {
         id: element.id,
         tagName: element.tagName,
@@ -694,10 +694,10 @@ function renderSavedArticles() {
 async function openSavedArticle(articleId) {
   if (!articleId || articleId === state.article.id) return;
   try {
-    const response = await chrome.runtime.sendMessage({ type: "OPENREAD_OPEN_BOOKMARK", articleId });
-    if (response?.ok === false) throw new Error(response.error || "OpenRead could not open this bookmarked article.");
+    const response = await chrome.runtime.sendMessage({ type: "LECTIO_OPEN_BOOKMARK", articleId });
+    if (response?.ok === false) throw new Error(response.error || "Lectio could not open this bookmarked article.");
   } catch (error) {
-    showReaderToast(error.message || "OpenRead could not open this bookmarked article");
+    showReaderToast(error.message || "Lectio could not open this bookmarked article");
   }
 }
 
@@ -1268,7 +1268,7 @@ function safeCreateAnchorFromSelection(articleRoot, selection) {
   try {
     return createAnchorFromSelection(articleRoot, selection);
   } catch (error) {
-    console.warn("OpenRead selection anchor failed", error);
+    console.warn("Lectio selection anchor failed", error);
     return null;
   }
 }
@@ -1285,7 +1285,7 @@ function getSelectedArticleText() {
 }
 
 function resolveAssistEndpoint() {
-  return resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_ASSIST_ENDPOINT || "/api/assist");
+  return resolveBackendEndpoint(import.meta.env.VITE_LECTIO_ASSIST_ENDPOINT || "/api/assist");
 }
 
 function resolveBackendEndpoint(path) {
@@ -1421,7 +1421,7 @@ async function requestAssist(mode) {
 }
 
 function assistCacheKey(mode) {
-  return ["openread:assist", "v1", mode, state.assist.targetLanguage, hashText(state.assist.selectedText)].join(":");
+  return ["lectio:assist", "v1", mode, state.assist.targetLanguage, hashText(state.assist.selectedText)].join(":");
 }
 
 async function tryLoadAssistResult(key) {
@@ -1738,7 +1738,7 @@ function closeSearchPopover(options = {}) {
 
 function pushOverlayHistory(name) {
   if (state.overlayHistory[name]) return;
-  history.pushState({ openreadOverlay: name }, "", window.location.href);
+  history.pushState({ lectioOverlay: name }, "", window.location.href);
   state.overlayHistory[name] = true;
 }
 
@@ -2118,7 +2118,7 @@ function exportPdf() {
   cancelDrawing();
   renderPrintNotes();
   resizeDrawingCanvas();
-  document.title = (state.article.title || "OpenRead") + " - annotated";
+  document.title = (state.article.title || "Lectio") + " - annotated";
   requestAnimationFrame(() => window.print());
 }
 
@@ -2339,8 +2339,8 @@ function matchesSearch(annotation) {
 function renderError(message) {
   app.innerHTML = `
     <main class="error-state">
-      <div class="brand-block"><span class="brand-mark">${bookIcon()}</span><span class="brand-name">OpenRead</span></div>
-      <h1>OpenRead could not open this article</h1>
+      <div class="brand-block"><span class="brand-mark">${bookIcon()}</span><span class="brand-name">Lectio</span></div>
+      <h1>Lectio could not open this article</h1>
       <p>${escapeHtml(message)}</p>
     </main>
   `;
@@ -2379,7 +2379,7 @@ function savedAtLabel(value) {
 }
 
 function slugify(text) {
-  return (text || "openread")
+  return (text || "lectio")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")

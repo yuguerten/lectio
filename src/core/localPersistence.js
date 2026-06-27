@@ -166,23 +166,23 @@ export function createMemoryStorageAdapter(initial = {}) {
 }
 
 function keyFor(articleId) {
-  return `openread:annotations:${articleId}`;
+  return `lectio:annotations:${articleId}`;
 }
 
 function drawingKeyFor(articleId) {
-  return `openread:drawings:${articleId}`;
+  return `lectio:drawings:${articleId}`;
 }
 
 function smartOutlineKeyFor(articleId) {
-  return `openread:smartOutline:${articleId}`;
+  return `lectio:smartOutline:${articleId}`;
 }
 
 function bookmarkIndexKey() {
-  return "openread:bookmarks";
+  return "lectio:bookmarks";
 }
 
 function bookmarkArticleKeyFor(articleId) {
-  return `openread:bookmark:${articleId}`;
+  return `lectio:bookmark:${articleId}`;
 }
 
 

@@ -1052,42 +1052,42 @@ svg {
   text-underline-offset: 4px;
 }
 
-.openread-interactive-plot {
+.lectio-interactive-plot {
   position: relative;
   left: 50%;
-  width: min(var(--openread-plot-width, 100%), calc(100vw - 420px));
+  width: min(var(--lectio-plot-width, 100%), calc(100vw - 420px));
   max-width: none;
   margin: 0 0 1.2em;
   overflow: hidden;
   transform: translateX(-50%);
 }
 
-.openread-interactive-plot-frame {
+.lectio-interactive-plot-frame {
   overflow: hidden;
   border: 1px solid var(--margin-line);
   border-radius: 8px;
   background: #ffffff;
 }
 
-.openread-interactive-plot iframe {
+.lectio-interactive-plot iframe {
   display: block;
   width: 100%;
-  height: var(--openread-plot-height, 760px);
+  height: var(--lectio-plot-height, 760px);
   min-height: 560px;
   border: 0;
   background: #ffffff;
 }
 
-.openread-interactive-plot .openread-preserved-plot,
-.openread-interactive-plot .js-plotly-plot,
-.openread-interactive-plot .plotly-graph-div,
-.openread-interactive-plot .plot-container,
-.openread-interactive-plot .svg-container {
+.lectio-interactive-plot .lectio-preserved-plot,
+.lectio-interactive-plot .js-plotly-plot,
+.lectio-interactive-plot .plotly-graph-div,
+.lectio-interactive-plot .plot-container,
+.lectio-interactive-plot .svg-container {
   max-width: 100%;
 }
 
-.openread-interactive-plot svg,
-.openread-interactive-plot img {
+.lectio-interactive-plot svg,
+.lectio-interactive-plot img {
   display: block;
   max-width: 100%;
   height: auto;
@@ -2497,7 +2497,7 @@ svg {
   animation: assist-content-in 180ms ease both;
 }
 
-/* OpenRead interface-system application: paper, ink, anchors, and borders-only depth. */
+/* Lectio interface-system application: paper, ink, anchors, and borders-only depth. */
 .workspace {
   background: var(--paper);
 }
@@ -2892,7 +2892,7 @@ textarea:focus-visible {
     padding: 24px 24px 64px;
   }
 
-  .openread-interactive-plot {
+  .lectio-interactive-plot {
     left: auto;
     width: 100%;
     margin-left: 0;

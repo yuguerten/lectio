@@ -15,7 +15,7 @@ const anchor = {
 };
 
 async function createService() {
-  const dir = await mkdtemp(join(tmpdir(), "openread-backend-"));
+  const dir = await mkdtemp(join(tmpdir(), "lectio-backend-"));
   return createBackendService({ dataFile: join(dir, "db.json") });
 }
 

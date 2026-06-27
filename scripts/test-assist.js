@@ -17,7 +17,7 @@ const stream = await client.chat.send({
     messages: [
       {
         role: "user",
-        content: "Reply with exactly: openread-ok"
+        content: "Reply with exactly: lectio-ok"
       }
     ],
     stream: true

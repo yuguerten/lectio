@@ -1,6 +1,6 @@
-# OpenRead
+# Lectio
 
-OpenRead is a Chromium Manifest V3 extension that turns articles into a focused study reader. It extracts the page with Mozilla Readability, opens it in an extension-owned reader tab, and gives you tools for reading, annotating, searching, drawing, listening, and exporting.
+Lectio is a Chromium Manifest V3 extension that turns articles into a focused study reader. It extracts the page with Mozilla Readability, opens it in an extension-owned reader tab, and gives you tools for reading, annotating, searching, drawing, listening, and exporting.
 
 The project also includes a small Node backend for optional account sync and OpenRouter-powered AI features.
 
@@ -44,7 +44,7 @@ Load the extension:
 2. Enable Developer mode.
 3. Click "Load unpacked".
 4. Select the generated `dist/` folder.
-5. Open an article page and click the OpenRead extension button.
+5. Open an article page and click the Lectio extension button.
 
 ## Local Backend
 
@@ -73,7 +73,7 @@ Available local routes include:
 - `/api/speech` for article audio.
 - `/api/outline` for Smart Outline section generation.
 
-The file-backed backend stores account and note data in `data/openread.json` by default. Set `OPENREAD_DATA_FILE` if you want to use a different path.
+The file-backed backend stores account and note data in `data/lectio.json` by default. Set `LECTIO_DATA_FILE` if you want to use a different path.
 
 ## Environment
 
@@ -90,11 +90,11 @@ OPENROUTER_API_KEY=your_openrouter_api_key_here
 OPENROUTER_MODEL=deepseek/deepseek-v4-flash
 OPENROUTER_TTS_MODEL=hexgrad/kokoro-82m
 OPENROUTER_TTS_VOICE=af_nova
-OPENREAD_ALLOWED_ORIGIN=*
-OPENREAD_DATA_FILE=data/openread.json
-VITE_OPENREAD_ASSIST_ENDPOINT=/api/assist
-VITE_OPENREAD_SPEECH_ENDPOINT=/api/speech
-VITE_OPENREAD_OUTLINE_ENDPOINT=/api/outline
+LECTIO_ALLOWED_ORIGIN=*
+LECTIO_DATA_FILE=data/lectio.json
+VITE_LECTIO_ASSIST_ENDPOINT=/api/assist
+VITE_LECTIO_SPEECH_ENDPOINT=/api/speech
+VITE_LECTIO_OUTLINE_ENDPOINT=/api/outline
 ```
 
 Do not expose `OPENROUTER_API_KEY` through a `VITE_` variable. `VITE_` variables are bundled into browser code.
@@ -110,9 +110,9 @@ npm run assist:test
 For local extension testing with the bundled backend, keep:
 
 ```sh
-VITE_OPENREAD_ASSIST_ENDPOINT=/api/assist
-VITE_OPENREAD_SPEECH_ENDPOINT=/api/speech
-VITE_OPENREAD_OUTLINE_ENDPOINT=/api/outline
+VITE_LECTIO_ASSIST_ENDPOINT=/api/assist
+VITE_LECTIO_SPEECH_ENDPOINT=/api/speech
+VITE_LECTIO_OUTLINE_ENDPOINT=/api/outline
 ```
 
 When loaded as an unpacked extension, relative API paths are resolved to the local backend at `http://127.0.0.1:8787`.
@@ -120,9 +120,9 @@ When loaded as an unpacked extension, relative API paths are resolved to the loc
 For a public build, point the extension at your deployed backend:
 
 ```sh
-VITE_OPENREAD_ASSIST_ENDPOINT=https://your-domain.com/api/assist \
-VITE_OPENREAD_SPEECH_ENDPOINT=https://your-domain.com/api/speech \
-VITE_OPENREAD_OUTLINE_ENDPOINT=https://your-domain.com/api/outline \
+VITE_LECTIO_ASSIST_ENDPOINT=https://your-domain.com/api/assist \
+VITE_LECTIO_SPEECH_ENDPOINT=https://your-domain.com/api/speech \
+VITE_LECTIO_OUTLINE_ENDPOINT=https://your-domain.com/api/outline \
 npm run build
 ```
 
@@ -153,4 +153,4 @@ vite.config.js       Multi-entry Vite build for pages and extension assets
 
 ## License
 
-OpenRead is open source software licensed under the [MIT License](LICENSE).
+Lectio is open source software licensed under the [MIT License](LICENSE).
