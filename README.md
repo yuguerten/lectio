@@ -161,4 +161,4 @@ vite.config.js       Multi-entry Vite build for pages and extension assets
 
 ## License
 
-No license has been added yet. Add one before publishing if you want others to know how they can use, modify, and redistribute the project.
+OpenRead is open source software licensed under the [MIT License](LICENSE).

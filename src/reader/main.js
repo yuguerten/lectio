@@ -812,6 +812,7 @@ function toggleFocusMode() {
 
 async function startArticleListening() {
   openListenPopover();
+  if (state.listen.status === "loading" || state.listen.generationPromise) return;
   if (state.listen.status !== "playing") await toggleListenMode();
 }
 
@@ -819,7 +820,6 @@ function openListenPopover() {
   closeSearchPopover();
   closeFilterPopover();
   closeTypographyPopover();
-  closeAuthPopover();
   closeCommentPopover();
   closeAssistPopover();
   renderListenPopover();
@@ -2177,7 +2177,7 @@ function handleGlobalKeydown(event) {
     }
     if (key === "l") {
       event.preventDefault();
-      openListenPopover();
+      startArticleListening();
       return;
     }
     if (key === "b") {

@@ -1,7 +1,8 @@
 {
   "name": "openread",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "license": "MIT",
   "type": "module",
   "description": "Interactive study reader browser extension for technical articles.",
   "scripts": {
