@@ -151,14 +151,6 @@ server.js            Local Node server for dist/ and API routes
 vite.config.js       Multi-entry Vite build for pages and extension assets
 ```
 
-## Current Limits
-
-- OpenRead is currently built for Chromium-based browsers.
-- The backend storage is a simple JSON file, suitable for local use and demos, not production multi-user hosting.
-- The extension asks for broad host access so it can extract articles from many sites.
-- Some pages cannot be extracted because of site restrictions, login walls, dynamic rendering, or browser extension limitations.
-- AI translate, explain, and speech require a server-side OpenRouter API key.
-
 ## License
 
 OpenRead is open source software licensed under the [MIT License](LICENSE).
