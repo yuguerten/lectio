@@ -304,7 +304,7 @@ function renderWorkspace() {
   renderArticleAndMargin();
   bindSelectionPopover();
   bindDrawingControls();
-  prepareCachedExtensionListening();
+  prepareArticleListening();
 }
 
 async function handleBookmarkArticle() {
@@ -1005,27 +1005,21 @@ function attachListenAudioBlob(blob, { ttsText, cacheKey, source }) {
   renderListenPopover();
 }
 
-function prepareCachedExtensionListening() {
-  if (state.listen.prewarmStarted || !isExtensionReader()) return;
+function prepareArticleListening() {
+  if (state.listen.prewarmStarted) return;
   state.listen.prewarmStarted = true;
   const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 600));
   schedule(async () => {
     if (state.listen.audio || !state.listen.dirty || state.listen.status !== "idle") return;
     try {
-      const ttsText = currentListenText();
-      const cacheKey = listenAudioCacheKey(ttsText);
-      const cached = await tryLoadCachedListenAudio(cacheKey);
-      if (cached?.blob && !state.listen.audio && state.listen.status === "idle") {
-        attachListenAudioBlob(cached.blob, { ttsText, cacheKey, source: "cache" });
-      }
-    } catch {
-      // Cached audio preparation is opportunistic; paid generation still waits for user action.
+      await generateListenAudio();
+    } catch (error) {
+      state.listen.status = "idle";
+      state.listen.error = error.message || "Audio preparation failed";
+      updateListenState();
+      renderListenPopover();
     }
   });
-}
-
-function isExtensionReader() {
-  return window.location.protocol === "chrome-extension:";
 }
 
 function listenAudioCacheKey(ttsText) {
