@@ -2,8 +2,16 @@ export function sanitizeArticleHtml(html) {
   const template = document.createElement("template");
   template.innerHTML = html;
 
-  for (const element of [...template.content.querySelectorAll("script, style, iframe, object, embed, form")]) {
+  for (const element of [...template.content.querySelectorAll("script, style, object, embed, form")]) {
     element.remove();
+  }
+
+  for (const iframe of [...template.content.querySelectorAll("iframe")]) {
+    if (isAllowedInteractiveIframe(iframe)) {
+      sanitizeInteractiveIframe(iframe);
+    } else {
+      iframe.remove();
+    }
   }
 
   for (const element of [...template.content.querySelectorAll("*")]) {
@@ -20,6 +28,21 @@ export function sanitizeArticleHtml(html) {
   removeUnwantedArticleAsides(template.content);
 
   return template.innerHTML;
+}
+
+function isAllowedInteractiveIframe(iframe) {
+  const src = iframe.getAttribute("src") || "";
+  return Boolean(iframe.closest(".openread-interactive-plot") && iframe.hasAttribute("data-openread-interactive-iframe") && /^https?:\/\//i.test(src));
+}
+
+function sanitizeInteractiveIframe(iframe) {
+  const allowed = new Set(["allow", "class", "data-openread-interactive-iframe", "height", "loading", "referrerpolicy", "sandbox", "src", "title", "width"]);
+  for (const attribute of [...iframe.attributes]) {
+    if (!allowed.has(attribute.name.toLowerCase())) iframe.removeAttribute(attribute.name);
+  }
+  iframe.setAttribute("loading", "lazy");
+  iframe.setAttribute("referrerpolicy", iframe.getAttribute("referrerpolicy") || "no-referrer-when-downgrade");
+  iframe.setAttribute("sandbox", iframe.getAttribute("sandbox") || "allow-scripts allow-same-origin allow-popups allow-forms");
 }
 
 const UNWANTED_ARTICLE_TEXT = [
@@ -51,7 +74,7 @@ export function renderHighlights(articleRoot, annotations, onActivate) {
   }
 }
 
-const LISTEN_SKIP_SELECTOR = "button, textarea, input, select, .comment-marker, .listen-popover, script, style";
+const LISTEN_SKIP_SELECTOR = "button, textarea, input, select, .comment-marker, .listen-popover, .openread-interactive-plot, script, style";
 
 export function getListenText(articleRoot) {
   return collectListenTextNodes(articleRoot).map((node) => node.nodeValue).join("");

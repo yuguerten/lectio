@@ -164,6 +164,7 @@ function renderWorkspace() {
         <div class="top-actions">
           <div class="toolbar-group toolbar-primary">
             <button id="search-toggle" class="toolbar-button toolbar-labeled search-toggle" type="button" title="Search article (/)" aria-label="Search article"><span class="toolbar-icon">${searchIcon()}</span><span class="toolbar-label">Search</span><kbd class="shortcut-badge" aria-hidden="true">/</kbd></button>
+            <button id="listen-top" class="toolbar-button toolbar-labeled listen-toolbar-button" type="button" aria-label="Listen to article" aria-pressed="false" title="Listen to article (L)"><span class="toolbar-icon">${headphonesIcon()}</span><span class="toolbar-label">Listen</span><kbd class="shortcut-badge" aria-hidden="true">L</kbd></button>
           </div>
           <div class="toolbar-group toolbar-content">
             <button id="draw-toggle" class="toolbar-button toolbar-labeled" type="button" aria-pressed="false" title="Draw on page (D)" aria-label="Draw on page"><span class="toolbar-icon">${drawIcon()}</span><span class="toolbar-label">Draw</span><kbd class="shortcut-badge" aria-hidden="true">D</kbd></button>
@@ -179,19 +180,20 @@ function renderWorkspace() {
         <div class="top-progress" aria-hidden="true"><span id="top-progress-bar"></span></div>
       </header>
       <button id="focus-floating-toggle" class="focus-mode-button" type="button" aria-label="Enter focus mode" aria-pressed="false" title="Focus mode (F)">${focusIcon()}<span class="focus-mode-label">Focus mode</span></button>
-      <aside class="reader-sidebar" aria-label="On this page">
+      <aside class="reader-sidebar" aria-label="Reader margin">
         <div class="toc-panel">
+          <p class="margin-eyebrow">Article margin</p>
           <div class="toc-header">
-            <p class="toc-heading">On this page</p>
+            <p class="toc-heading">Outline</p>
             <button id="smart-outline-action" class="toc-action" type="button">Smart outline</button>
           </div>
           <nav id="toc-list" class="toc-list"></nav>
           <p id="smart-outline-status" class="toc-status" role="status" aria-live="polite"></p>
         </div>
-        <div class="saved-panel" aria-label="Bookmarked articles">
-          <p class="toc-heading">Bookmarks</p>
+        <details class="saved-panel" aria-label="Bookmarked articles">
+          <summary><span>Bookmarks</span><small>Saved locally</small></summary>
           <div id="saved-article-list" class="saved-article-list"></div>
-        </div>
+        </details>
       </aside>
 
       <div id="search-popover" class="search-popover" aria-label="Article search">
@@ -229,8 +231,11 @@ function renderWorkspace() {
           <div class="article-listen-entry">
             <button id="article-listen-start" class="article-listen-button" type="button" aria-label="Listen to article">
               <span class="article-listen-icon" aria-hidden="true">${headphonesIcon()}</span>
+              <span class="article-listen-copy">
+                <strong id="article-listen-status">${listenStatusLabel()}</strong>
+                <small id="article-listen-duration">${listenButtonDurationLabel()}</small>
+              </span>
               <kbd class="shortcut-badge listen-shortcut" aria-hidden="true">L</kbd>
-              <small id="article-listen-duration">${listenButtonDurationLabel()}</small>
             </button>
           </div>
           <article id="article" class="article" tabindex="-1"></article>
@@ -266,6 +271,7 @@ function renderWorkspace() {
 
   document.querySelector("#article-search").value = state.searchQuery;
   document.querySelector("#search-toggle").addEventListener("click", toggleSearchPopover);
+  document.querySelector("#listen-top")?.addEventListener("click", startArticleListening);
   document.querySelector("#typography-toggle").addEventListener("click", openTypographyPopover);
   document.querySelector("#type-close").addEventListener("click", closeTypographyPopover);
   document.querySelector("#focus-toggle")?.addEventListener("click", toggleFocusMode);
@@ -339,6 +345,7 @@ function renderArticleAndMargin(options = {}) {
   const articleRoot = document.querySelector("#article");
   articleRoot.innerHTML = sanitizeArticleHtml(state.article.html);
   prepareArticleHeadings(articleRoot);
+  markArticleCaptions(articleRoot);
   updateSmartOutlineChunks(articleRoot);
   enhanceCodeBlocks(articleRoot);
   const articleText = articleRoot.textContent || "";
@@ -623,6 +630,19 @@ function markArticleMetadata(articleRoot) {
   articleRoot.querySelectorAll("p").forEach((paragraph) => {
     const text = (paragraph.textContent || "").trim();
     paragraph.classList.toggle("article-meta", /^Author:/i.test(text));
+  });
+}
+
+function markArticleCaptions(articleRoot) {
+  articleRoot.querySelectorAll("img, video").forEach((media) => {
+    if (media.closest("figure")?.querySelector("figcaption")) return;
+    const parentBlock = media.closest("p, div, section") || media;
+    const candidate = media.nextElementSibling?.matches?.("p") ? media.nextElementSibling : parentBlock.nextElementSibling;
+    if (!candidate?.matches?.("p")) return;
+    const text = (candidate.textContent || "").replace(/\s+/g, " ").trim();
+    if (!text || text.length > 260) return;
+    if (/[.!?].+\s[A-Z][a-z]/.test(text) && !/\b(image|photo|figure|source|credit|caption)\b/i.test(text)) return;
+    candidate.classList.add("article-caption");
   });
 }
 
@@ -925,6 +945,8 @@ async function generateListenAudio() {
   if (state.listen.generationPromise) return state.listen.generationPromise;
   state.listen.generationPromise = generateListenAudioRequest().finally(() => {
     state.listen.generationPromise = null;
+    updateListenState();
+    renderListenPopover();
   });
   return state.listen.generationPromise;
 }
@@ -1156,8 +1178,16 @@ function updateListenProgress() {
 
 function listenButtonDurationLabel(duration = Number.isFinite(state.listen.audio?.duration) ? state.listen.audio.duration : 0) {
   if (Number.isFinite(duration) && duration > 0) return formatListenTime(duration);
-  if (isListenPreparing()) return "Preparing";
+  if (isListenPreparing()) return "Loading";
   return `${estimateReadingMinutes()} min`;
+}
+
+function listenStatusLabel() {
+  if (isListenPreparing()) return "Loading audio";
+  if (state.listen.status === "playing") return "Listening";
+  if (state.listen.error) return "Audio unavailable";
+  if (state.listen.audio && !state.listen.dirty) return "Audio ready";
+  return "Listen while reading";
 }
 
 function isListenPreparing() {
@@ -1167,6 +1197,8 @@ function isListenPreparing() {
 function updateListenButtonDuration(duration) {
   const label = document.querySelector("#article-listen-duration");
   if (label) label.textContent = listenButtonDurationLabel(duration);
+  const status = document.querySelector("#article-listen-status");
+  if (status) status.textContent = listenStatusLabel();
   document.querySelector("#article-listen-start")?.classList.toggle("is-preparing", isListenPreparing());
 }
 
@@ -1183,8 +1215,15 @@ function setListenDockVisible(visible) {
 
 function updateListenState() {
   const active = state.listen.status === "playing" || state.listen.status === "loading";
-  document.querySelector("#article-listen-start")?.classList.toggle("is-active", active);
-  document.querySelector("#article-listen-start")?.setAttribute("aria-pressed", String(active));
+  const toolbarLabel = document.querySelector("#listen-top .toolbar-label");
+  if (toolbarLabel) toolbarLabel.textContent = state.listen.status === "playing" ? "Playing" : state.listen.error ? "Retry" : "Listen";
+  for (const button of document.querySelectorAll("#article-listen-start, #listen-top")) {
+    button.classList.toggle("is-active", active);
+    button.classList.toggle("is-preparing", isListenPreparing());
+    button.classList.toggle("has-error", Boolean(state.listen.error));
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute("aria-label", listenStatusLabel());
+  }
   updateListenButtonDuration();
 }
 function handleHighlightTool() {
@@ -1663,7 +1702,7 @@ function closeCommentPopover() {
 function closeFloatingCommentOnOutsideClick(event) {
   if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
   if (!event.target.closest?.(".typography-popover, #typography-toggle")) closeTypographyPopover();
-  if (!event.target.closest?.(".listen-popover, #article-listen-start")) closeListenPopover();
+  if (!event.target.closest?.(".listen-popover, #article-listen-start, #listen-top")) closeListenPopover();
   if (event.target.closest?.(".assist-popover, .listen-popover, .comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
   closeAssistPopover();
