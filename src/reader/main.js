@@ -8,7 +8,14 @@ import {
   upsertAnnotation
 } from "../core/annotations.js";
 import { createAnchorFromSelection, resolveAnchor } from "../core/textAnchor.js";
-import { createAnnotationStore, createChromeStorageAdapter, createDrawingStore, createRemoteAnnotationStore } from "../core/localPersistence.js";
+import { createSmartOutlineChunks, createSmartOutlineSignature } from "../core/smartOutline.js";
+import {
+  createAnnotationStore,
+  createBookmarkStore,
+  createChromeStorageAdapter,
+  createDrawingStore,
+  createSmartOutlineStore
+} from "../core/localPersistence.js";
 import { getListenText, renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
 import { isImplicitHeadingText, isStandaloneCodeParagraph, isTerminalSnippet } from "./heuristics.js";
 
@@ -28,12 +35,16 @@ const LISTEN_MODEL = "hexgrad/kokoro-82m";
 const LISTEN_VOICE = "af_heart";
 const LISTEN_SPEEDS = [0.85, 1, 1.15, 1.3];
 const ASSIST_ENDPOINT = resolveAssistEndpoint();
-const NOTES_ENDPOINT = resolveBackendEndpoint("/api/notes");
 const SPEECH_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_SPEECH_ENDPOINT || "/api/speech");
+const SMART_OUTLINE_ENDPOINT = resolveBackendEndpoint(import.meta.env.VITE_OPENREAD_OUTLINE_ENDPOINT || "/api/outline");
+const LISTEN_AUDIO_CACHE_DB = "openread-listen-cache";
+const LISTEN_AUDIO_CACHE_STORE = "audio";
+const LISTEN_AUDIO_CACHE_LIMIT = 24;
 const state = {
   article: null,
   annotations: [],
   drawings: [],
+  bookmarks: [],
   filters: { color: "all", type: "all" },
   searchQuery: "",
   searchMatchCount: 0,
@@ -56,12 +67,23 @@ const state = {
     dirty: true,
     ttsText: "",
     generationPromise: null,
-    prewarmStarted: false
+    prewarmStarted: false,
+    cacheKey: "",
+    source: ""
   },
   assist: {
     selectedText: "",
     mode: "translate",
     targetLanguage: "en",
+    requestId: 0
+  },
+  smartOutline: {
+    status: "idle",
+    sections: [],
+    chunks: [],
+    signature: "",
+    cacheLoaded: false,
+    error: "",
     requestId: 0
   },
   toc: [],
@@ -81,18 +103,14 @@ const state = {
   overlayHistory: {
     search: false
   },
-  suppressOverlayPop: false,
-  auth: {
-    token: "",
-    user: null,
-    mode: "login"
-  }
+  suppressOverlayPop: false
 };
 
 const storageAdapter = createChromeStorageAdapter();
-const localAnnotationStore = createAnnotationStore(storageAdapter);
-let store = localAnnotationStore;
+const store = createAnnotationStore(storageAdapter);
 const drawingStore = createDrawingStore(storageAdapter);
+const bookmarkStore = createBookmarkStore(storageAdapter);
+const smartOutlineStore = createSmartOutlineStore(storageAdapter);
 const app = document.querySelector("#app");
 
 boot().catch((error) => {
@@ -100,14 +118,16 @@ boot().catch((error) => {
 });
 
 async function boot() {
-  state.auth.token = await loadAuthToken();
-  await refreshCurrentUser();
-  configureAnnotationStore();
   state.article = await loadArticleFromSession();
   if (state.article.error) throw new Error(state.article.error);
-  const [annotations, drawings] = await Promise.all([store.load(state.article.id), drawingStore.load(state.article.id)]);
+  const [annotations, drawings, bookmarks] = await Promise.all([
+    store.load(state.article.id),
+    drawingStore.load(state.article.id),
+    bookmarkStore.list()
+  ]);
   state.annotations = annotations;
   state.drawings = drawings;
+  state.bookmarks = bookmarks;
   renderWorkspace();
 }
 
@@ -148,22 +168,29 @@ function renderWorkspace() {
           <div class="toolbar-group toolbar-content">
             <button id="draw-toggle" class="toolbar-button toolbar-labeled" type="button" aria-pressed="false" title="Draw on page (D)" aria-label="Draw on page"><span class="toolbar-icon">${drawIcon()}</span><span class="toolbar-label">Draw</span><kbd class="shortcut-badge" aria-hidden="true">D</kbd></button>
             <button id="export-pdf" class="toolbar-button toolbar-labeled export-button" type="button" title="Export PDF" aria-label="Export PDF"><span class="toolbar-icon">${downloadIcon()}</span><span class="toolbar-label">Export</span></button>
-            <button id="bookmark-top" class="toolbar-button toolbar-labeled bookmark-button" type="button" title="Bookmark article (B)" aria-label="Bookmark article"><span class="toolbar-icon">${bookmarkIcon()}</span><span class="toolbar-label">Bookmark</span><kbd class="shortcut-badge" aria-hidden="true">B</kbd></button>
+            <button id="bookmark-top" class="toolbar-button toolbar-labeled bookmark-button ${isCurrentArticleBookmarked() ? "is-bookmarked" : ""}" type="button" title="${isCurrentArticleBookmarked() ? "Bookmarked" : "Bookmark article (B)"}" aria-label="${isCurrentArticleBookmarked() ? "Article bookmarked" : "Bookmark article"}" aria-pressed="${isCurrentArticleBookmarked() ? "true" : "false"}"><span class="toolbar-icon">${bookmarkIcon(isCurrentArticleBookmarked())}</span><span class="toolbar-label">Bookmark</span><kbd class="shortcut-badge" aria-hidden="true">B</kbd></button>
           </div>
           <div class="toolbar-group toolbar-settings">
+            <button id="focus-toggle" class="toolbar-button toolbar-icon-only focus-toggle" type="button" aria-label="Enter focus mode" aria-pressed="false" title="Focus mode (F)"><span>${focusIcon()}</span><kbd class="shortcut-badge" aria-hidden="true">F</kbd></button>
             <button id="theme-toggle" class="toolbar-button toolbar-icon-only theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle theme"><span>${sunIcon()}</span><span>${moonIcon()}</span></button>
             <button id="typography-toggle" class="toolbar-button toolbar-labeled text-button" type="button" title="Typography settings" aria-label="Typography settings"><span class="toolbar-icon">Aa</span><span class="toolbar-label">Typography</span></button>
-          </div>
-          <div class="toolbar-group toolbar-account">
-            <button id="account-toggle" class="toolbar-button toolbar-labeled account-toggle" type="button" title="Account" aria-label="Account"><span class="toolbar-icon">${userIcon()}</span><span class="toolbar-label">Account</span></button>
           </div>
         </div>
         <div class="top-progress" aria-hidden="true"><span id="top-progress-bar"></span></div>
       </header>
+      <button id="focus-floating-toggle" class="focus-mode-button" type="button" aria-label="Enter focus mode" aria-pressed="false" title="Focus mode (F)">${focusIcon()}<span class="focus-mode-label">Focus mode</span></button>
       <aside class="reader-sidebar" aria-label="On this page">
         <div class="toc-panel">
-          <p class="toc-heading">On this page</p>
+          <div class="toc-header">
+            <p class="toc-heading">On this page</p>
+            <button id="smart-outline-action" class="toc-action" type="button">Smart outline</button>
+          </div>
           <nav id="toc-list" class="toc-list"></nav>
+          <p id="smart-outline-status" class="toc-status" role="status" aria-live="polite"></p>
+        </div>
+        <div class="saved-panel" aria-label="Bookmarked articles">
+          <p class="toc-heading">Bookmarks</p>
+          <div id="saved-article-list" class="saved-article-list"></div>
         </div>
       </aside>
 
@@ -175,7 +202,6 @@ function renderWorkspace() {
           <kbd>/</kbd>
         </label>
       </div>
-      <div id="auth-popover" class="auth-popover" aria-label="Account" role="dialog"></div>
       <div id="listen-popover" class="listen-popover" aria-label="Listen settings" role="dialog"></div>
       <div id="typography-popover" class="typography-popover" aria-label="Reading settings" role="dialog">
         <section class="type-panel">
@@ -203,7 +229,6 @@ function renderWorkspace() {
           <div class="article-listen-entry">
             <button id="article-listen-start" class="article-listen-button" type="button" aria-label="Listen to article">
               <span class="article-listen-icon" aria-hidden="true">${headphonesIcon()}</span>
-              <span>Listen to article</span>
               <kbd class="shortcut-badge listen-shortcut" aria-hidden="true">L</kbd>
               <small id="article-listen-duration">${listenButtonDurationLabel()}</small>
             </button>
@@ -241,16 +266,16 @@ function renderWorkspace() {
 
   document.querySelector("#article-search").value = state.searchQuery;
   document.querySelector("#search-toggle").addEventListener("click", toggleSearchPopover);
-  document.querySelector("#account-toggle").addEventListener("click", openAuthPopover);
   document.querySelector("#typography-toggle").addEventListener("click", openTypographyPopover);
   document.querySelector("#type-close").addEventListener("click", closeTypographyPopover);
+  document.querySelector("#focus-toggle")?.addEventListener("click", toggleFocusMode);
+  document.querySelector("#focus-floating-toggle")?.addEventListener("click", toggleFocusMode);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
   document.querySelector("#article-listen-start")?.addEventListener("click", startArticleListening);
   document.querySelector("#highlight-tool")?.addEventListener("click", handleHighlightTool);
-  document.querySelector("#bookmark-tool")?.addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
-  document.querySelector("#bookmark-top").addEventListener("click", () => showReaderToast("Article saved to OpenRead"));
+  document.querySelector("#bookmark-tool")?.addEventListener("click", handleBookmarkArticle);
+  document.querySelector("#bookmark-top").addEventListener("click", handleBookmarkArticle);
   bindTypographyControls();
-  renderAuthPopover();
   renderListenPopover();
   applyReaderPreferences();
   document.querySelector("#article-search").addEventListener("input", (event) => {
@@ -279,13 +304,42 @@ function renderWorkspace() {
   renderArticleAndMargin();
   bindSelectionPopover();
   bindDrawingControls();
-  prewarmExtensionListening();
+  prepareCachedExtensionListening();
+}
+
+async function handleBookmarkArticle() {
+  try {
+    await bookmarkStore.save(state.article);
+    state.bookmarks = await bookmarkStore.list();
+    updateBookmarkButton();
+    renderSavedArticles();
+    showReaderToast("Article saved locally in this browser");
+  } catch (error) {
+    showReaderToast(error.message || "OpenRead could not save this article");
+  }
+}
+
+function isCurrentArticleBookmarked() {
+  return state.bookmarks.some((bookmark) => bookmark.id === state.article?.id);
+}
+
+function updateBookmarkButton() {
+  const button = document.querySelector("#bookmark-top");
+  if (!button) return;
+  const bookmarked = isCurrentArticleBookmarked();
+  button.classList.toggle("is-bookmarked", bookmarked);
+  button.setAttribute("aria-pressed", String(bookmarked));
+  button.setAttribute("aria-label", bookmarked ? "Article bookmarked" : "Bookmark article");
+  button.title = bookmarked ? "Bookmarked" : "Bookmark article (B)";
+  const icon = button.querySelector(".toolbar-icon");
+  if (icon) icon.innerHTML = bookmarkIcon(bookmarked);
 }
 
 function renderArticleAndMargin(options = {}) {
   const articleRoot = document.querySelector("#article");
   articleRoot.innerHTML = sanitizeArticleHtml(state.article.html);
   prepareArticleHeadings(articleRoot);
+  updateSmartOutlineChunks(articleRoot);
   enhanceCodeBlocks(articleRoot);
   const articleText = articleRoot.textContent || "";
   const visible = filterAnnotations(state.annotations, state.filters)
@@ -302,6 +356,8 @@ function renderArticleAndMargin(options = {}) {
   markSearchActive();
   updateSearchCount();
   renderTableOfContents();
+  renderSavedArticles();
+  triggerSmartOutlineLoad();
   renderPrintNotes();
   markActive();
   for (const image of articleRoot.querySelectorAll("img")) {
@@ -431,6 +487,138 @@ function normalizeTocText(text) {
     .toLowerCase();
 }
 
+function updateSmartOutlineChunks(articleRoot) {
+  const blocks = [...articleRoot.querySelectorAll("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre")]
+    .filter((element) => !element.closest(".article-meta, .code-card, form, nav, button, .comment-marker"))
+    .map((element, index) => {
+      if (!element.id) element.id = `openread-block-${index + 1}`;
+      return {
+        id: element.id,
+        tagName: element.tagName,
+        text: element.textContent || ""
+      };
+    });
+  const chunks = createSmartOutlineChunks(blocks);
+  const signature = createSmartOutlineSignature(chunks);
+  if (signature !== state.smartOutline.signature) {
+    state.smartOutline = {
+      status: "idle",
+      sections: [],
+      chunks,
+      signature,
+      cacheLoaded: false,
+      error: "",
+      requestId: state.smartOutline.requestId + 1
+    };
+    return;
+  }
+  state.smartOutline.chunks = chunks;
+}
+
+function smartOutlineShouldAutoGenerate() {
+  return state.smartOutline.chunks.length >= 3 && state.toc.length < 3;
+}
+
+async function triggerSmartOutlineLoad(options = {}) {
+  const force = Boolean(options.force);
+  if (!state.article || !state.smartOutline.chunks.length) return;
+  if (state.smartOutline.status === "loading") return;
+  if (!force && state.smartOutline.cacheLoaded && !smartOutlineShouldAutoGenerate()) return;
+
+  const requestId = ++state.smartOutline.requestId;
+  const shouldGenerate = force || smartOutlineShouldAutoGenerate();
+
+  if (!force && !state.smartOutline.cacheLoaded) {
+    const cached = await smartOutlineStore.load(state.article.id, state.smartOutline.signature);
+    if (requestId !== state.smartOutline.requestId) return;
+    state.smartOutline.cacheLoaded = true;
+    if (cached?.sections?.length) {
+      state.smartOutline.status = "ready";
+      state.smartOutline.sections = cached.sections;
+      state.smartOutline.error = "";
+      renderTableOfContents();
+      updateReadingProgress();
+      return;
+    }
+  }
+
+  if (!shouldGenerate) {
+    renderTableOfContents();
+    return;
+  }
+
+  state.smartOutline.status = "loading";
+  state.smartOutline.error = "";
+  renderTableOfContents();
+
+  try {
+    const payload = await fetchSmartOutline();
+    if (requestId !== state.smartOutline.requestId) return;
+    const sections = mapSmartOutlineSections(payload.sections || []);
+    if (!sections.length) throw new Error("Smart outline did not return usable sections.");
+    state.smartOutline.status = "ready";
+    state.smartOutline.sections = sections;
+    state.smartOutline.cacheLoaded = true;
+    state.smartOutline.error = "";
+    await smartOutlineStore.save(state.article.id, {
+      signature: state.smartOutline.signature,
+      sections,
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    if (requestId !== state.smartOutline.requestId) return;
+    state.smartOutline.status = "error";
+    state.smartOutline.error = error.message || "Smart outline is unavailable.";
+    if (force) showReaderToast(state.smartOutline.error);
+  }
+
+  renderTableOfContents();
+  updateReadingProgress();
+}
+
+async function fetchSmartOutline() {
+  const response = await fetch(SMART_OUTLINE_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: state.article.title,
+      url: state.article.pageUrl || state.article.url,
+      chunks: state.smartOutline.chunks.map(({ id, targetId, text }) => ({ id, targetId, text }))
+    })
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    const message = payload.error || `Smart outline failed with ${response.status}`;
+    if (message === "API route not found.") {
+      throw new Error("Smart outline backend is not running the latest /api/outline route. Restart npm run serve and rebuild/reload the extension.");
+    }
+    throw new Error(message);
+  }
+  return payload;
+}
+
+function mapSmartOutlineSections(sections) {
+  const chunksById = new Map(state.smartOutline.chunks.map((chunk) => [chunk.id, chunk]));
+  return sections
+    .map((section, index) => {
+      const chunk = chunksById.get(section.startChunkId);
+      if (!chunk || !document.getElementById(chunk.targetId)) return null;
+      return {
+        id: chunk.targetId,
+        text: section.title || `Section ${index + 1}`,
+        summary: section.summary || "",
+        level: "smart",
+        index
+      };
+    })
+    .filter(Boolean);
+}
+
+function visibleTocItems() {
+  return state.smartOutline.status === "ready" && state.smartOutline.sections.length ? state.smartOutline.sections : state.toc;
+}
+
 function markArticleMetadata(articleRoot) {
   articleRoot.querySelectorAll("p").forEach((paragraph) => {
     const text = (paragraph.textContent || "").trim();
@@ -441,14 +629,16 @@ function markArticleMetadata(articleRoot) {
 function renderTableOfContents() {
   const tocList = document.querySelector("#toc-list");
   if (!tocList) return;
-  if (!state.toc.length) {
+  const items = visibleTocItems();
+  updateSmartOutlineControls();
+  if (!items.length) {
     tocList.innerHTML = `<span class="toc-empty">Article</span>`;
     return;
   }
-  tocList.innerHTML = state.toc
+  tocList.innerHTML = items
     .map(
       (item) =>
-        `<a href="#${escapeAttribute(item.id)}" class="toc-link ${item.level === "h3" ? "is-nested" : ""}" data-section-id="${escapeAttribute(item.id)}"><span aria-hidden="true"></span>${escapeHtml(item.text)}</a>`
+        `<a href="#${escapeAttribute(item.id)}" class="toc-link ${item.level === "h3" ? "is-nested" : ""} ${item.level === "smart" ? "is-smart" : ""}" data-section-id="${escapeAttribute(item.id)}" title="${escapeAttribute(item.summary || item.text)}"><span aria-hidden="true"></span>${escapeHtml(item.text)}</a>`
     )
     .join("");
   tocList.querySelectorAll("a").forEach((link) => {
@@ -457,6 +647,71 @@ function renderTableOfContents() {
       document.getElementById(link.dataset.sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
+}
+
+function renderSavedArticles() {
+  const list = document.querySelector("#saved-article-list");
+  if (!list) return;
+  const bookmarks = state.bookmarks.slice(0, 8);
+  if (!bookmarks.length) {
+    list.innerHTML = `<p class="saved-empty">Click Bookmark or press B to keep articles here locally.</p>`;
+    return;
+  }
+
+  list.innerHTML = bookmarks
+    .map((bookmark) => `
+      <button class="saved-article-link ${bookmark.id === state.article.id ? "is-current" : ""}" type="button" data-article-id="${escapeAttribute(bookmark.id)}" title="${escapeAttribute(bookmark.title)}">
+        <span>${escapeHtml(bookmark.title)}</span>
+        <small>${escapeHtml(bookmark.siteName || hostFor(bookmark.pageUrl))}${savedAtLabel(bookmark.savedAt)}</small>
+      </button>
+    `)
+    .join("");
+  list.querySelectorAll("[data-article-id]").forEach((button) => {
+    button.addEventListener("click", () => openSavedArticle(button.dataset.articleId));
+  });
+}
+
+async function openSavedArticle(articleId) {
+  if (!articleId || articleId === state.article.id) return;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "OPENREAD_OPEN_BOOKMARK", articleId });
+    if (response?.ok === false) throw new Error(response.error || "OpenRead could not open this bookmarked article.");
+  } catch (error) {
+    showReaderToast(error.message || "OpenRead could not open this bookmarked article");
+  }
+}
+
+
+function updateSmartOutlineControls() {
+  const action = document.querySelector("#smart-outline-action");
+  const status = document.querySelector("#smart-outline-status");
+  if (!action || !status) return;
+  const canOutline = state.smartOutline.chunks.length >= 2;
+  action.hidden = !canOutline;
+  action.disabled = state.smartOutline.status === "loading";
+  action.textContent = state.smartOutline.status === "ready" ? "Regenerate" : "Smart outline";
+  action.onclick = () => triggerSmartOutlineLoad({ force: true });
+
+  if (state.smartOutline.status === "loading") {
+    status.innerHTML = smartOutlineSkeletonTemplate();
+  } else if (state.smartOutline.status === "ready") {
+    status.textContent = "AI outline";
+  } else if (state.smartOutline.status === "error") {
+    status.textContent = "Using detected headings";
+  } else if (smartOutlineShouldAutoGenerate()) {
+    status.textContent = "Detected headings are sparse";
+  } else {
+    status.textContent = "";
+  }
+}
+
+function smartOutlineSkeletonTemplate() {
+  const widths = ["78%", "94%", "66%", "88%", "54%"];
+  return `
+    <span class="toc-skeleton" aria-label="Generating semantic sections">
+      ${widths.map((width) => `<span style="--skeleton-width:${width}"></span>`).join("")}
+    </span>
+  `;
 }
 
 function updateReadingProgress() {
@@ -469,160 +724,13 @@ function updateReadingProgress() {
   const percent = Math.round(progress * 100);
   document.querySelector("#top-progress-bar")?.style.setProperty("width", `${percent}%`);
   let activeIndex = 0;
-  state.toc.forEach((item, index) => {
+  visibleTocItems().forEach((item, index) => {
     const heading = document.getElementById(item.id);
     if (heading && heading.getBoundingClientRect().top <= 150) activeIndex = index;
   });
   document.querySelectorAll(".toc-link").forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
 }
 
-
-function configureAnnotationStore() {
-  store = state.auth.token
-    ? createRemoteAnnotationStore({ endpoint: NOTES_ENDPOINT, getToken: () => state.auth.token })
-    : localAnnotationStore;
-}
-
-async function loadAuthToken() {
-  if (globalThis.chrome?.storage?.local) {
-    const result = await chrome.storage.local.get("openread:authToken");
-    return result["openread:authToken"] || "";
-  }
-  return localStorage.getItem("openread:authToken") || "";
-}
-
-async function saveAuthToken(token) {
-  if (globalThis.chrome?.storage?.local) {
-    if (token) await chrome.storage.local.set({ "openread:authToken": token });
-    else await chrome.storage.local.remove("openread:authToken");
-    return;
-  }
-  if (token) localStorage.setItem("openread:authToken", token);
-  else localStorage.removeItem("openread:authToken");
-}
-
-async function refreshCurrentUser() {
-  if (!state.auth.token) {
-    state.auth.user = null;
-    return;
-  }
-  try {
-    const payload = await apiRequest("/api/me", { token: state.auth.token });
-    state.auth.user = payload.user;
-  } catch {
-    state.auth.token = "";
-    state.auth.user = null;
-    await saveAuthToken("");
-  }
-}
-
-function openAuthPopover() {
-  closeSearchPopover();
-  closeFilterPopover();
-  closeTypographyPopover();
-  closeCommentPopover();
-  renderAuthPopover();
-  document.querySelector("#auth-popover")?.classList.toggle("is-visible");
-}
-
-function closeAuthPopover() {
-  document.querySelector("#auth-popover")?.classList.remove("is-visible");
-}
-
-function renderAuthPopover(message = "") {
-  const popover = document.querySelector("#auth-popover");
-  if (!popover) return;
-  if (state.auth.user) {
-    popover.innerHTML = `
-      <section class="auth-panel">
-        <strong>${escapeHtml(state.auth.user.name || state.auth.user.email)}</strong>
-        <span>${escapeHtml(state.auth.user.email)}</span>
-        <button id="auth-logout" class="auth-submit" type="button">Log out</button>
-      </section>
-    `;
-    popover.querySelector("#auth-logout").addEventListener("click", handleLogout);
-    return;
-  }
-
-  const isRegister = state.auth.mode === "register";
-  popover.innerHTML = `
-    <form class="auth-panel" id="auth-form">
-      <strong>${isRegister ? "Create account" : "Log in"}</strong>
-      ${message ? `<p class="auth-message">${escapeHtml(message)}</p>` : ""}
-      ${isRegister ? `<label><span>Name</span><input name="name" autocomplete="name" /></label>` : ""}
-      <label><span>Email</span><input name="email" type="email" autocomplete="email" required /></label>
-      <label><span>Password</span><input name="password" type="password" autocomplete="${isRegister ? "new-password" : "current-password"}" minlength="8" required /></label>
-      <button class="auth-submit" type="submit">${isRegister ? "Create account" : "Log in"}</button>
-      <button class="auth-link" type="button" id="auth-mode-toggle">${isRegister ? "Use existing account" : "Create account"}</button>
-    </form>
-  `;
-  popover.querySelector("#auth-form").addEventListener("submit", handleAuthSubmit);
-  popover.querySelector("#auth-mode-toggle").addEventListener("click", () => {
-    state.auth.mode = isRegister ? "login" : "register";
-    renderAuthPopover();
-  });
-}
-
-async function handleAuthSubmit(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const formData = new FormData(form);
-  const path = state.auth.mode === "register" ? "/api/auth/register" : "/api/auth/login";
-  try {
-    const payload = await apiRequest(path, {
-      method: "POST",
-      body: {
-        name: formData.get("name"),
-        email: formData.get("email"),
-        password: formData.get("password")
-      }
-    });
-    state.auth.token = payload.token;
-    state.auth.user = payload.user;
-    await saveAuthToken(payload.token);
-    configureAnnotationStore();
-    state.annotations = state.article ? await store.load(state.article.id) : [];
-    renderAuthPopover();
-    closeAuthPopover();
-    renderArticleAndMargin();
-    showReaderToast("Signed in. Notes are syncing.");
-  } catch (error) {
-    renderAuthPopover(error.message);
-  }
-}
-
-async function handleLogout() {
-  try {
-    await apiRequest("/api/auth/logout", { method: "POST", token: state.auth.token });
-  } catch {
-    // Local logout should still clear a stale token.
-  }
-  state.auth.token = "";
-  state.auth.user = null;
-  await saveAuthToken("");
-  configureAnnotationStore();
-  state.annotations = state.article ? await store.load(state.article.id) : [];
-  renderAuthPopover();
-  closeAuthPopover();
-  renderArticleAndMargin();
-  showReaderToast("Signed out. Notes are local.");
-}
-
-async function apiRequest(path, options = {}) {
-  const endpoint = resolveBackendEndpoint(path);
-  const headers = { ...(options.headers || {}) };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (options.token) headers.Authorization = `Bearer ${options.token}`;
-  const response = await fetch(endpoint, {
-    method: options.method || "GET",
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
-  });
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(payload.error || `Request failed with ${response.status}`);
-  return payload;
-}
 
 function openTypographyPopover() {
   closeSearchPopover();
@@ -665,6 +773,19 @@ function applyReaderPreferences() {
   }
   updateTypographyLabels();
   document.querySelector("#theme-toggle")?.setAttribute("aria-pressed", String(state.theme === "night"));
+  updateFocusModeButtons();
+}
+
+function updateFocusModeButtons() {
+  const label = state.focusMode ? "Exit focus mode" : "Enter focus mode";
+  for (const button of document.querySelectorAll("#focus-toggle, #focus-floating-toggle")) {
+    button.classList.toggle("is-active", state.focusMode);
+    button.setAttribute("aria-pressed", String(state.focusMode));
+    button.setAttribute("aria-label", label);
+    button.title = "Focus mode (F)";
+    const textLabel = button.querySelector(".focus-mode-label");
+    if (textLabel && button.id === "focus-floating-toggle") textLabel.textContent = state.focusMode ? "Exit focus mode" : "Focus mode";
+  }
 }
 
 function updateTypographyLabels() {
@@ -691,6 +812,7 @@ function toggleFocusMode() {
 
 async function startArticleListening() {
   openListenPopover();
+  if (state.listen.status === "loading" || state.listen.generationPromise) return;
   if (state.listen.status !== "playing") await toggleListenMode();
 }
 
@@ -698,7 +820,6 @@ function openListenPopover() {
   closeSearchPopover();
   closeFilterPopover();
   closeTypographyPopover();
-  closeAuthPopover();
   closeCommentPopover();
   closeAssistPopover();
   renderListenPopover();
@@ -767,7 +888,7 @@ function formatListenSpeed(speed) {
 }
 
 function updateListenConfig(patch) {
-  Object.assign(state.listen, patch, { model: LISTEN_MODEL, voice: LISTEN_VOICE, dirty: true, error: "" });
+  Object.assign(state.listen, patch, { model: LISTEN_MODEL, voice: LISTEN_VOICE, dirty: true, error: "", cacheKey: "", source: "" });
   if (state.listen.audio) {
     state.listen.audio.pause();
     state.listen.audio.currentTime = 0;
@@ -809,15 +930,21 @@ async function generateListenAudio() {
 }
 
 async function generateListenAudioRequest() {
-  const articleRoot = document.querySelector("#article");
-  const articleText = getListenText(articleRoot);
-  if (!articleText) throw new Error("No article text to read");
-  const ttsText = articleText.slice(0, 12000);
+  const ttsText = currentListenText();
+  const cacheKey = listenAudioCacheKey(ttsText);
   state.listen.ttsText = ttsText;
+  state.listen.cacheKey = cacheKey;
   state.listen.status = "loading";
   state.listen.error = "";
   renderListenPopover();
   updateListenState();
+
+  const cached = await tryLoadCachedListenAudio(cacheKey);
+  if (cached?.blob) {
+    attachListenAudioBlob(cached.blob, { ttsText, cacheKey, source: "cache" });
+    return;
+  }
+
   const response = await fetch(SPEECH_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -834,7 +961,31 @@ async function generateListenAudioRequest() {
     throw new Error(message);
   }
   const blob = await response.blob();
+  await trySaveCachedListenAudio(cacheKey, {
+    blob,
+    articleId: state.article.id,
+    title: state.article.title,
+    model: state.listen.model,
+    voice: state.listen.voice,
+    speed: state.listen.speed,
+    textHash: hashText(ttsText),
+    createdAt: new Date().toISOString()
+  });
+  attachListenAudioBlob(blob, { ttsText, cacheKey, source: "network" });
+}
+
+function currentListenText() {
+  const articleRoot = document.querySelector("#article");
+  const articleText = getListenText(articleRoot);
+  if (!articleText) throw new Error("No article text to read");
+  return articleText.slice(0, 12000);
+}
+
+function attachListenAudioBlob(blob, { ttsText, cacheKey, source }) {
   revokeListenAudio();
+  state.listen.ttsText = ttsText;
+  state.listen.cacheKey = cacheKey;
+  state.listen.source = source;
   state.listen.audioUrl = URL.createObjectURL(blob);
   state.listen.audio = new Audio(state.listen.audioUrl);
   state.listen.audio.preload = "metadata";
@@ -854,23 +1005,122 @@ async function generateListenAudioRequest() {
   renderListenPopover();
 }
 
-function prewarmExtensionListening() {
+function prepareCachedExtensionListening() {
   if (state.listen.prewarmStarted || !isExtensionReader()) return;
   state.listen.prewarmStarted = true;
   const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 600));
-  schedule(() => {
-    if (!state.listen.audio && state.listen.dirty && state.listen.status === "idle") {
-      generateListenAudio().catch((error) => {
-        state.listen.status = "idle";
-        state.listen.error = normalizeListenError(error.message);
-        updateListenState();
-      });
+  schedule(async () => {
+    if (state.listen.audio || !state.listen.dirty || state.listen.status !== "idle") return;
+    try {
+      const ttsText = currentListenText();
+      const cacheKey = listenAudioCacheKey(ttsText);
+      const cached = await tryLoadCachedListenAudio(cacheKey);
+      if (cached?.blob && !state.listen.audio && state.listen.status === "idle") {
+        attachListenAudioBlob(cached.blob, { ttsText, cacheKey, source: "cache" });
+      }
+    } catch {
+      // Cached audio preparation is opportunistic; paid generation still waits for user action.
     }
   });
 }
 
 function isExtensionReader() {
   return window.location.protocol === "chrome-extension:";
+}
+
+function listenAudioCacheKey(ttsText) {
+  return ["listen", state.article?.id || "article", state.listen.model, state.listen.voice, state.listen.speed, hashText(ttsText)].join(":");
+}
+
+function hashText(text) {
+  let hash = 2166136261;
+  const value = String(text || "");
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+async function tryLoadCachedListenAudio(key) {
+  try {
+    return await loadCachedListenAudio(key);
+  } catch {
+    return null;
+  }
+}
+
+async function trySaveCachedListenAudio(key, value) {
+  try {
+    await saveCachedListenAudio(key, value);
+  } catch {
+    // Cache writes are best-effort; playback should still work if storage is full or unavailable.
+  }
+}
+
+async function loadCachedListenAudio(key) {
+  const store = await openListenAudioCache();
+  const cached = await idbRequest(store.transaction.objectStore(LISTEN_AUDIO_CACHE_STORE).get(key));
+  if (cached) touchCachedListenAudio(key).catch(() => {});
+  return cached;
+}
+
+async function saveCachedListenAudio(key, value) {
+  const store = await openListenAudioCache("readwrite");
+  const tx = store.transaction;
+  tx.objectStore(LISTEN_AUDIO_CACHE_STORE).put({ key, ...value, lastUsedAt: new Date().toISOString() });
+  await idbTransactionDone(tx);
+  pruneListenAudioCache().catch(() => {});
+}
+
+async function touchCachedListenAudio(key) {
+  const store = await openListenAudioCache("readwrite");
+  const tx = store.transaction;
+  const objectStore = tx.objectStore(LISTEN_AUDIO_CACHE_STORE);
+  const cached = await idbRequest(objectStore.get(key));
+  if (cached) objectStore.put({ ...cached, lastUsedAt: new Date().toISOString() });
+  await idbTransactionDone(tx);
+}
+
+async function pruneListenAudioCache() {
+  const store = await openListenAudioCache("readwrite");
+  const tx = store.transaction;
+  const objectStore = tx.objectStore(LISTEN_AUDIO_CACHE_STORE);
+  const entries = await idbRequest(objectStore.getAll());
+  const stale = entries
+    .sort((a, b) => String(b.lastUsedAt || b.createdAt || "").localeCompare(String(a.lastUsedAt || a.createdAt || "")))
+    .slice(LISTEN_AUDIO_CACHE_LIMIT);
+  for (const entry of stale) objectStore.delete(entry.key);
+  await idbTransactionDone(tx);
+}
+
+async function openListenAudioCache(mode = "readonly") {
+  if (!globalThis.indexedDB) throw new Error("Browser audio cache is unavailable.");
+  const db = await idbRequest(globalThis.indexedDB.open(LISTEN_AUDIO_CACHE_DB, 1), {
+    upgrade(request) {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(LISTEN_AUDIO_CACHE_STORE)) {
+        database.createObjectStore(LISTEN_AUDIO_CACHE_STORE, { keyPath: "key" });
+      }
+    }
+  });
+  return { db, transaction: db.transaction(LISTEN_AUDIO_CACHE_STORE, mode) };
+}
+
+function idbRequest(request, options = {}) {
+  return new Promise((resolve, reject) => {
+    request.onupgradeneeded = () => options.upgrade?.(request);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB request failed."));
+  });
+}
+
+function idbTransactionDone(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error("IndexedDB transaction failed."));
+    transaction.onabort = () => reject(transaction.error || new Error("IndexedDB transaction aborted."));
+  });
 }
 
 function revokeListenAudio() {
@@ -1105,8 +1355,16 @@ function assistSkeletonTemplate(mode, direction = "ltr") {
 
 async function requestAssist(mode) {
   const requestId = ++state.assist.requestId;
+  const cacheKey = assistCacheKey(mode);
   try {
     renderAssistPopover(mode === "translate" ? "Translating..." : "Explaining...", { loading: true });
+    const cached = await tryLoadAssistResult(cacheKey);
+    if (requestId !== state.assist.requestId) return;
+    if (cached?.text) {
+      renderAssistPopover(cached.text);
+      return;
+    }
+
     const response = await fetch(ASSIST_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1119,12 +1377,30 @@ async function requestAssist(mode) {
     const payload = await response.json().catch(() => ({}));
     if (requestId !== state.assist.requestId) return;
     if (!response.ok) throw new Error(payload.error || "Assist request failed");
-    renderAssistPopover(payload.text || "");
+    const text = payload.text || "";
+    if (text) trySaveAssistResult(cacheKey, { text, createdAt: new Date().toISOString() });
+    renderAssistPopover(text);
   } catch (error) {
     if (requestId !== state.assist.requestId) return;
     renderAssistPopover(error.message || "Assist request failed", { error: true });
     showReaderToast(error.message || "Assist request failed");
   }
+}
+
+function assistCacheKey(mode) {
+  return ["openread:assist", "v1", mode, state.assist.targetLanguage, hashText(state.assist.selectedText)].join(":");
+}
+
+async function tryLoadAssistResult(key) {
+  try {
+    return await storageAdapter.get(key);
+  } catch {
+    return null;
+  }
+}
+
+function trySaveAssistResult(key, value) {
+  storageAdapter.set(key, value).catch(() => {});
 }
 
 function languageLabel(value) {
@@ -1393,7 +1669,6 @@ function closeCommentPopover() {
 function closeFloatingCommentOnOutsideClick(event) {
   if (!event.target.closest?.(".search-popover, #search-toggle")) closeSearchPopover();
   if (!event.target.closest?.(".typography-popover, #typography-toggle")) closeTypographyPopover();
-  if (!event.target.closest?.(".auth-popover, #account-toggle")) closeAuthPopover();
   if (!event.target.closest?.(".listen-popover, #article-listen-start")) closeListenPopover();
   if (event.target.closest?.(".assist-popover, .listen-popover, .comment-popover, .comment-marker, .highlight, .popover, .review-modal")) return;
   closeCommentPopover();
@@ -1902,12 +2177,17 @@ function handleGlobalKeydown(event) {
     }
     if (key === "l") {
       event.preventDefault();
-      openListenPopover();
+      startArticleListening();
       return;
     }
     if (key === "b") {
       event.preventDefault();
-      showReaderToast("Article saved to OpenRead");
+      handleBookmarkArticle();
+      return;
+    }
+    if (key === "f") {
+      event.preventDefault();
+      toggleFocusMode();
       return;
     }
   }
@@ -2050,6 +2330,21 @@ function shortQuote(text) {
   return text.length > 150 ? `${text.slice(0, 147)}...` : text;
 }
 
+function hostFor(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "Saved article";
+  }
+}
+
+function savedAtLabel(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return ` · ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
 function slugify(text) {
   return (text || "openread")
     .toLowerCase()
@@ -2090,8 +2385,10 @@ function moonIcon() {
   return svg('<path d="M20 14.5A7 7 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>', { size: 16 });
 }
 
-function bookmarkIcon() {
-  return svg('<path d="M6 4h12v17l-6-3.5L6 21V4Z"/>', { size: 20 });
+function bookmarkIcon(filled = false) {
+  return filled
+    ? svg('<path d="M6 4h12v17l-6-3.5L6 21V4Z" fill="currentColor"/>', { size: 20, stroke: 2 })
+    : svg('<path d="M6 4h12v17l-6-3.5L6 21V4Z"/>', { size: 20 });
 }
 
 function playIcon() {
@@ -2222,10 +2519,6 @@ function trashIcon() {
   return svg('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="m10 11 .4 6"/><path d="m14 11-.4 6"/><path d="M6 7l1 14h10l1-14"/>', { size: 16 });
 }
 
-
-function userIcon() {
-  return svg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', { size: 18 });
-}
 
 function xIcon() {
   return svg('<path d="M6 6l12 12"/><path d="M18 6 6 18"/>', { size: 16, stroke: 2 });

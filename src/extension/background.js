@@ -1,3 +1,7 @@
+import { createBookmarkStore, createChromeStorageAdapter } from "../core/localPersistence.js";
+
+const bookmarkStore = createBookmarkStore(createChromeStorageAdapter());
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
 
@@ -31,14 +35,30 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "OPENREAD_ARTICLE_EXTRACTED") return false;
+  if (message?.type === "OPENREAD_ARTICLE_EXTRACTED") {
+    openReaderTab(message.article, sender.tab?.id)
+      .then((url) => sendResponse({ ok: true, url }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
 
-  openReaderTab(message.article, sender.tab?.id)
-    .then((url) => sendResponse({ ok: true, url }))
-    .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
 
-  return true;
+  if (message?.type === "OPENREAD_OPEN_BOOKMARK") {
+    openBookmarkedArticle(message.articleId)
+      .then((url) => sendResponse({ ok: true, url }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
+  return false;
 });
+
+async function openBookmarkedArticle(articleId) {
+  const article = await bookmarkStore.load(articleId);
+  if (!article) throw new Error("This bookmarked article is no longer available in browser storage.");
+  return openReaderTab(article);
+}
 
 async function openReaderTab(article, openerTabId) {
   const sessionId = crypto.randomUUID();

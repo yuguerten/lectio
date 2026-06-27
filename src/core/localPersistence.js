@@ -64,6 +64,74 @@ export function createDrawingStore(adapter) {
   };
 }
 
+
+export function createSmartOutlineStore(adapter) {
+  return {
+    async load(articleId, signature) {
+      const value = await adapter.get(smartOutlineKeyFor(articleId));
+      if (!value || value.signature !== signature || !Array.isArray(value.sections)) return null;
+      return value;
+    },
+
+    async save(articleId, outline) {
+      await adapter.set(smartOutlineKeyFor(articleId), outline);
+      return outline;
+    },
+
+    async delete(articleId) {
+      await adapter.remove(smartOutlineKeyFor(articleId));
+    }
+  };
+}
+
+export function createBookmarkStore(adapter) {
+  return {
+    async list() {
+      const value = await adapter.get(bookmarkIndexKey());
+      return Array.isArray(value?.bookmarks) ? value.bookmarks : [];
+    },
+
+    async load(articleId) {
+      const value = await adapter.get(bookmarkArticleKeyFor(articleId));
+      return value?.article || null;
+    },
+
+    async save(article) {
+      if (!article?.id) throw new Error("Cannot bookmark an article without an id.");
+
+      const savedAt = new Date().toISOString();
+      const bookmark = {
+        id: article.id,
+        title: article.title || "Untitled article",
+        url: article.url || article.id,
+        pageUrl: article.pageUrl || article.url || article.id,
+        canonicalUrl: article.canonicalUrl || "",
+        excerpt: article.excerpt || "",
+        byline: article.byline || "",
+        siteName: article.siteName || "",
+        savedAt
+      };
+      const bookmarks = await this.list();
+      const nextBookmarks = [bookmark, ...bookmarks.filter((item) => item.id !== article.id)];
+
+      await Promise.all([
+        adapter.set(bookmarkIndexKey(), { bookmarks: nextBookmarks }),
+        adapter.set(bookmarkArticleKeyFor(article.id), { article: { ...article, bookmarkedAt: savedAt } })
+      ]);
+
+      return bookmark;
+    },
+
+    async delete(articleId) {
+      const bookmarks = await this.list();
+      await Promise.all([
+        adapter.set(bookmarkIndexKey(), { bookmarks: bookmarks.filter((item) => item.id !== articleId) }),
+        adapter.remove(bookmarkArticleKeyFor(articleId))
+      ]);
+    }
+  };
+}
+
 export function createChromeStorageAdapter(area = globalThis.chrome?.storage?.local) {
   if (!area) {
     throw new Error("Chrome storage is unavailable.");
@@ -103,6 +171,18 @@ function keyFor(articleId) {
 
 function drawingKeyFor(articleId) {
   return `openread:drawings:${articleId}`;
+}
+
+function smartOutlineKeyFor(articleId) {
+  return `openread:smartOutline:${articleId}`;
+}
+
+function bookmarkIndexKey() {
+  return "openread:bookmarks";
+}
+
+function bookmarkArticleKeyFor(articleId) {
+  return `openread:bookmark:${articleId}`;
 }
 
 
