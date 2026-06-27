@@ -47,7 +47,7 @@ export default async function handler(request, response) {
 
     response.status(200).json(outline);
   } catch (error) {
-    console.error("OpenRead outline failed", error);
+    console.error("Lectio outline failed", error);
     response.status(error.status || 500).json({ error: error.message || "Outline request failed" });
   }
 }
@@ -117,7 +117,7 @@ function parseBody(body) {
 }
 
 function setCorsHeaders(response) {
-  response.setHeader("Access-Control-Allow-Origin", process.env.OPENREAD_ALLOWED_ORIGIN || "*");
+  response.setHeader("Access-Control-Allow-Origin", process.env.LECTIO_ALLOWED_ORIGIN || "*");
   response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }

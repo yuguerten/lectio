@@ -1,8 +1,8 @@
-# OpenRead Interface System
+# Lectio Interface System
 
 ## Direction
 
-OpenRead should feel like a serious technical reading workspace: quiet, textual, and precise, with just enough warmth to support long study sessions. The human is reading a dense article, selecting passages, leaving margin notes, asking for help on selected text, filtering annotations, and exporting useful Markdown without losing their place.
+Lectio should feel like a serious technical reading workspace: quiet, textual, and precise, with just enough warmth to support long study sessions. The human is reading a dense article, selecting passages, leaving margin notes, asking for help on selected text, filtering annotations, and exporting useful Markdown without losing their place.
 
 ## Domain
 
@@ -30,7 +30,7 @@ OpenRead should feel like a serious technical reading workspace: quiet, textual,
 
 ## Signature
 
-OpenRead’s signature is the margin anchor rail: a restrained rail beside the article that ties highlighted passages, note markers, filter state, and reading position back to the text. It should appear in the reader, annotation lists, filtered states, export preview, and assist results so the product feels built around anchored study rather than generic document viewing.
+Lectio’s signature is the margin anchor rail: a restrained rail beside the article that ties highlighted passages, note markers, filter state, and reading position back to the text. It should appear in the reader, annotation lists, filtered states, export preview, and assist results so the product feels built around anchored study rather than generic document viewing.
 
 ## Rejecting Defaults
 

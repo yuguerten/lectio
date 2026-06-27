@@ -4,11 +4,11 @@ import { dirname, join, normalize } from "node:path";
 import { promisify } from "node:util";
 
 const scrypt = promisify(scryptCallback);
-const DEFAULT_DATA_FILE = normalize(join(process.cwd(), "data", "openread.json"));
+const DEFAULT_DATA_FILE = normalize(join(process.cwd(), "data", "lectio.json"));
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
 export function createBackendService(options = {}) {
-  const dataFile = options.dataFile || process.env.OPENREAD_DATA_FILE || DEFAULT_DATA_FILE;
+  const dataFile = options.dataFile || process.env.LECTIO_DATA_FILE || DEFAULT_DATA_FILE;
 
   return {
     dataFile,

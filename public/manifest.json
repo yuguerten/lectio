@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "OpenRead Study Reader",
+  "name": "Lectio Study Reader",
   "version": "0.1.0",
   "description": "Open technical articles in a focused study reader with local highlights and notes.",
   "permissions": ["activeTab", "storage"],

@@ -200,13 +200,13 @@ function withInteractivePlots(html, plots, { documentLike } = {}) {
 
 function createInteractivePlotEmbed(documentLike, plot) {
   const figure = documentLike.createElement("figure");
-  figure.className = "openread-interactive-plot";
+  figure.className = "lectio-interactive-plot";
   figure.setAttribute("data-plot-type", plot.type);
-  if (plot.size?.width) figure.style.setProperty("--openread-plot-width", `${plot.size.width}px`);
-  if (plot.size?.height) figure.style.setProperty("--openread-plot-height", `${plot.size.height}px`);
+  if (plot.size?.width) figure.style.setProperty("--lectio-plot-width", `${plot.size.width}px`);
+  if (plot.size?.height) figure.style.setProperty("--lectio-plot-height", `${plot.size.height}px`);
 
   const frame = documentLike.createElement("div");
-  frame.className = "openread-interactive-plot-frame";
+  frame.className = "lectio-interactive-plot-frame";
   frame.innerHTML = plot.html;
   figure.append(frame);
 
@@ -231,8 +231,8 @@ function serializeInteractivePlot(element, { documentLike, type } = {}) {
   const clone = element.cloneNode?.(true);
   if (!clone?.outerHTML) return "";
   cleanInteractivePlotClone(clone);
-  clone.classList?.add("openread-preserved-plot");
-  clone.setAttribute?.("data-openread-plot-type", type || "interactive");
+  clone.classList?.add("lectio-preserved-plot");
+  clone.setAttribute?.("data-lectio-plot-type", type || "interactive");
   return clone.outerHTML;
 }
 
@@ -245,7 +245,7 @@ function serializeInteractiveIframe(iframe, documentLike) {
   clone.title = iframe.getAttribute?.("title") || iframe.getAttribute?.("aria-label") || "Interactive chart";
   clone.loading = "lazy";
   clone.referrerPolicy = "no-referrer-when-downgrade";
-  clone.setAttribute("data-openread-interactive-iframe", "true");
+  clone.setAttribute("data-lectio-interactive-iframe", "true");
   clone.setAttribute("allow", iframe.getAttribute?.("allow") || "fullscreen");
   clone.setAttribute("sandbox", iframe.getAttribute?.("sandbox") || "allow-scripts allow-same-origin allow-popups allow-forms");
   clone.width = size.width ? String(size.width) : iframe.getAttribute?.("width") || "100%";
@@ -259,7 +259,7 @@ function serializeCanvasSnapshot(canvas, documentLike) {
     const image = documentLike.createElement("img");
     image.src = canvas.toDataURL("image/png");
     image.alt = canvas.getAttribute?.("aria-label") || canvas.getAttribute?.("title") || "Interactive chart";
-    image.className = "openread-preserved-plot";
+    image.className = "lectio-preserved-plot";
     return image.outerHTML;
   } catch {
     return "";

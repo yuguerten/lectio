@@ -52,7 +52,7 @@ export default async function handler(request, response) {
       reasoningTokens: result.reasoningTokens
     });
   } catch (error) {
-    console.error("OpenRead assist failed", error);
+    console.error("Lectio assist failed", error);
     const status = error.status || 500;
     const message = error.code === "insufficient_quota"
       ? "OpenRouter quota exceeded. Check billing, credits, and project limits for this API key."
@@ -124,7 +124,7 @@ async function runOpenRouterAssist(client, { mode, text, targetLanguage }) {
 }
 
 function setCorsHeaders(response) {
-  response.setHeader("Access-Control-Allow-Origin", process.env.OPENREAD_ALLOWED_ORIGIN || "*");
+  response.setHeader("Access-Control-Allow-Origin", process.env.LECTIO_ALLOWED_ORIGIN || "*");
   response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }

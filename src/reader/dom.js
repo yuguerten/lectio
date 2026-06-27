@@ -32,11 +32,11 @@ export function sanitizeArticleHtml(html) {
 
 function isAllowedInteractiveIframe(iframe) {
   const src = iframe.getAttribute("src") || "";
-  return Boolean(iframe.closest(".openread-interactive-plot") && iframe.hasAttribute("data-openread-interactive-iframe") && /^https?:\/\//i.test(src));
+  return Boolean(iframe.closest(".lectio-interactive-plot") && iframe.hasAttribute("data-lectio-interactive-iframe") && /^https?:\/\//i.test(src));
 }
 
 function sanitizeInteractiveIframe(iframe) {
-  const allowed = new Set(["allow", "class", "data-openread-interactive-iframe", "height", "loading", "referrerpolicy", "sandbox", "src", "title", "width"]);
+  const allowed = new Set(["allow", "class", "data-lectio-interactive-iframe", "height", "loading", "referrerpolicy", "sandbox", "src", "title", "width"]);
   for (const attribute of [...iframe.attributes]) {
     if (!allowed.has(attribute.name.toLowerCase())) iframe.removeAttribute(attribute.name);
   }
@@ -74,7 +74,7 @@ export function renderHighlights(articleRoot, annotations, onActivate) {
   }
 }
 
-const LISTEN_SKIP_SELECTOR = "button, textarea, input, select, .comment-marker, .listen-popover, .openread-interactive-plot, script, style";
+const LISTEN_SKIP_SELECTOR = "button, textarea, input, select, .comment-marker, .listen-popover, .lectio-interactive-plot, script, style";
 
 export function getListenText(articleRoot) {
   return collectListenTextNodes(articleRoot).map((node) => node.nodeValue).join("");

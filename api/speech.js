@@ -62,7 +62,7 @@ export default async function handler(request, response) {
     if (generationId) response.setHeader("X-Generation-Id", generationId);
     response.status(200).end(Buffer.from(arrayBuffer));
   } catch (error) {
-    console.error("OpenRead speech failed", error);
+    console.error("Lectio speech failed", error);
     response.status(500).json({ error: error.message || "Speech request failed" });
   }
 }
@@ -96,7 +96,7 @@ async function readErrorMessage(response) {
 }
 
 function setCorsHeaders(response) {
-  response.setHeader("Access-Control-Allow-Origin", process.env.OPENREAD_ALLOWED_ORIGIN || "*");
+  response.setHeader("Access-Control-Allow-Origin", process.env.LECTIO_ALLOWED_ORIGIN || "*");
   response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
