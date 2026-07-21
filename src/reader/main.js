@@ -1,4 +1,6 @@
 import "./styles.css";
+import "./brutalist.css";
+import "./minimalist.css";
 import {
   HIGHLIGHT_COLORS,
   createAnnotation,
@@ -21,7 +23,7 @@ import { isImplicitHeadingText, isStandaloneCodeParagraph, isTerminalSnippet } f
 
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
 const colorLabelMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.label]));
-const DRAWING_COLORS = ["#171717", "#e03131", "#1971c2", "#2f9e44", "#f08c00"];
+const DRAWING_COLORS = ["#24211d", "#245f8f"];
 const ASSIST_LANGUAGES = [
   { value: "en", label: "English", flag: "🇬🇧", direction: "ltr" },
   { value: "fr", label: "French", flag: "🇫🇷", direction: "ltr" },
@@ -145,8 +147,19 @@ async function loadArticleFromSession() {
 
 function renderWorkspace() {
   state.filters = { color: "all", type: "all" };
+  const sourceUrl = state.article.pageUrl || state.article.url;
+  const sourceHost = hostFor(sourceUrl);
+  const readingMinutes = estimateReadingMinutes();
+  const wordCount = articleWordCount();
   app.innerHTML = `
     <main class="workspace theme-paper">
+      <div class="register-strip" aria-label="Reader edition information">
+        <span>[ LECTIO READER® ]</span>
+        <span>ISSUE 001</span>
+        <span>${escapeHtml(sourceHost)}</span>
+        <span>/// LOCAL READING FILE</span>
+        <span id="reader-progress">000%</span>
+      </div>
       <header class="appbar">
         <div class="reader-meta">
           <div class="brand-block">
@@ -158,7 +171,7 @@ function renderWorkspace() {
             <a class="source-title" href="${escapeAttribute(state.article.pageUrl || state.article.url)}" target="_blank" rel="noreferrer" title="Open source page">
               <h1>${escapeHtml(state.article.title)}</h1>
             </a>
-            <span class="saved-status">${checkCircleIcon()} Saved</span>
+            <span class="saved-status">[ SAVED ]</span>
           </div>
         </div>
         <div class="top-actions">
@@ -173,7 +186,7 @@ function renderWorkspace() {
           </div>
           <div class="toolbar-group toolbar-settings">
             <button id="focus-toggle" class="toolbar-button toolbar-icon-only focus-toggle" type="button" aria-label="Enter focus mode" aria-pressed="false" title="Focus mode (F)"><span>${focusIcon()}</span><kbd class="shortcut-badge" aria-hidden="true">F</kbd></button>
-            <button id="theme-toggle" class="toolbar-button toolbar-icon-only theme-toggle" type="button" aria-label="Toggle night mode" aria-pressed="false" title="Toggle theme"><span>${sunIcon()}</span><span>${moonIcon()}</span></button>
+            <button id="theme-toggle" class="toolbar-button toolbar-labeled theme-toggle" type="button" aria-label="Toggle paper tone" aria-pressed="false" title="Toggle paper tone"><span class="toolbar-icon theme-icon">${sunIcon()}</span><span class="toolbar-label">Paper</span></button>
             <button id="typography-toggle" class="toolbar-button toolbar-labeled text-button" type="button" title="Typography settings" aria-label="Typography settings"><span class="toolbar-icon">Aa</span><span class="toolbar-label">Typography</span></button>
           </div>
         </div>
@@ -181,17 +194,27 @@ function renderWorkspace() {
       </header>
       <button id="focus-floating-toggle" class="focus-mode-button" type="button" aria-label="Enter focus mode" aria-pressed="false" title="Focus mode (F)">${focusIcon()}<span class="focus-mode-label">Focus mode</span></button>
       <aside class="reader-sidebar" aria-label="Reader margin">
+        <section class="dossier-hero" aria-label="Article dossier">
+          <p>[ DOSSIER ]</p>
+          <strong aria-hidden="true">01</strong>
+          <dl>
+            <div><dt>Source</dt><dd>${escapeHtml(sourceHost)}</dd></div>
+            <div><dt>Read</dt><dd>${readingMinutes} min</dd></div>
+            <div><dt>Words</dt><dd>${wordCount.toLocaleString()}</dd></div>
+            <div><dt>Section</dt><dd id="active-section-index">01</dd></div>
+          </dl>
+        </section>
         <div class="toc-panel">
-          <p class="margin-eyebrow">Article margin</p>
+          <p class="margin-eyebrow">[ ARTICLE INDEX ]</p>
           <div class="toc-header">
-            <p class="toc-heading">Outline</p>
-            <button id="smart-outline-action" class="toc-action" type="button">Smart outline</button>
+            <p class="toc-heading">Contents</p>
+            <button id="smart-outline-action" class="toc-action" type="button">Generate index</button>
           </div>
           <nav id="toc-list" class="toc-list"></nav>
           <p id="smart-outline-status" class="toc-status" role="status" aria-live="polite"></p>
         </div>
         <details class="saved-panel" aria-label="Bookmarked articles">
-          <summary><span>Bookmarks</span><small>Saved locally</small></summary>
+          <summary><span>[ ARCHIVE ]</span><small>Local files</small></summary>
           <div id="saved-article-list" class="saved-article-list"></div>
         </details>
       </aside>
@@ -211,6 +234,12 @@ function renderWorkspace() {
             <div class="settings-title"><span class="brand-mark" aria-hidden="true">${bookIcon()}</span><h2>Reading settings</h2></div>
             <button id="type-close" class="settings-close" type="button" aria-label="Close reading settings">${xIcon()}</button>
           </header>
+          <div class="type-specimen" aria-label="Typography specimen">
+            <span>[ TYPE SPECIMEN ]</span>
+            <strong>LECTIO</strong>
+            <p>READ / MARK / RETURN</p>
+            <small>INTER 12 / MONO 10 / CARBON INK</small>
+          </div>
           <div class="settings-control">
             <div class="settings-row-heading"><span class="settings-icon">Aa</span><label for="type-size">Text size</label><strong id="type-size-value"></strong></div>
             <div class="slider-row"><span>A</span><input id="type-size" type="range" min="18" max="25" value="${state.typography.size}" /><span>AA</span></div>
@@ -228,6 +257,17 @@ function renderWorkspace() {
 
       <div class="study-layout">
         <section class="paper-shell">
+          <header class="article-register">
+            <div class="article-register-title">
+              <span>[ SOURCE TEXT ]</span>
+              <strong>&gt;&gt;&gt; READ / MARK / EXPORT</strong>
+            </div>
+            <dl>
+              <div><dt>Publication</dt><dd>${escapeHtml(state.article.siteName || sourceHost)}</dd></div>
+              <div><dt>Byline</dt><dd>${escapeHtml(state.article.byline || "Source author")}</dd></div>
+              <div><dt>Length</dt><dd>${wordCount.toLocaleString()} words</dd></div>
+            </dl>
+          </header>
           <div class="article-listen-entry">
             <button id="article-listen-start" class="article-listen-button" type="button" aria-label="Listen to article">
               <span class="article-listen-icon" aria-hidden="true">${headphonesIcon()}</span>
@@ -239,6 +279,11 @@ function renderWorkspace() {
             </button>
           </div>
           <article id="article" class="article" tabindex="-1"></article>
+          <footer class="reader-colophon" aria-label="Reader colophon">
+            <span>[ COLOPHON ]</span>
+            <p>LECTIO READER PRESS /// PAPER STOCK F4 /// EDITION 001</p>
+            <p>SET IN INTER / SYSTEM MONO /// SOURCE PRESERVED LOCALLY</p>
+          </footer>
           <canvas id="drawing-canvas" class="drawing-canvas" aria-label="Drawing layer"></canvas>
         </section>
         <section id="print-notes" class="print-notes" aria-hidden="true"></section>
@@ -657,8 +702,8 @@ function renderTableOfContents() {
   }
   tocList.innerHTML = items
     .map(
-      (item) =>
-        `<a href="#${escapeAttribute(item.id)}" class="toc-link ${item.level === "h3" ? "is-nested" : ""} ${item.level === "smart" ? "is-smart" : ""}" data-section-id="${escapeAttribute(item.id)}" title="${escapeAttribute(item.summary || item.text)}"><span aria-hidden="true"></span>${escapeHtml(item.text)}</a>`
+      (item, index) =>
+        `<a href="#${escapeAttribute(item.id)}" class="toc-link ${item.level === "h3" ? "is-nested" : ""} ${item.level === "smart" ? "is-smart" : ""}" data-section-id="${escapeAttribute(item.id)}" title="${escapeAttribute(item.summary || item.text)}"><b aria-hidden="true">${String(index + 1).padStart(2, "0")}.</b>${escapeHtml(item.text)}</a>`
     )
     .join("");
   tocList.querySelectorAll("a").forEach((link) => {
@@ -745,12 +790,16 @@ function updateReadingProgress() {
   document.querySelector("#top-progress-bar")?.style.setProperty("width", `${percent}%`);
   let activeIndex = 0;
   visibleTocItems().forEach((item, index) => {
+  const progressLabel = document.querySelector("#reader-progress");
+  if (progressLabel) progressLabel.textContent = `${String(percent).padStart(3, "0")}%`;
     const heading = document.getElementById(item.id);
     if (heading && heading.getBoundingClientRect().top <= 150) activeIndex = index;
   });
   document.querySelectorAll(".toc-link").forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
 }
 
+  const activeSection = document.querySelector("#active-section-index");
+  if (activeSection) activeSection.textContent = String(activeIndex + 1).padStart(2, "0");
 
 function openTypographyPopover() {
   closeSearchPopover();
@@ -782,8 +831,8 @@ function applyReaderPreferences() {
   const workspace = document.querySelector(".workspace");
   const article = document.querySelector("#article");
   if (workspace) {
-    workspace.classList.toggle("theme-night", state.theme === "night");
-    workspace.classList.toggle("theme-paper", state.theme !== "night");
+    workspace.classList.toggle("theme-newsprint", state.theme === "newsprint");
+    workspace.classList.toggle("theme-paper", state.theme !== "newsprint");
     workspace.classList.toggle("is-focus-mode", state.focusMode);
   }
   if (article) {
@@ -792,7 +841,11 @@ function applyReaderPreferences() {
     article.style.setProperty("--article-width", `${state.typography.width}px`);
   }
   updateTypographyLabels();
-  document.querySelector("#theme-toggle")?.setAttribute("aria-pressed", String(state.theme === "night"));
+  document.querySelector("#theme-toggle")?.setAttribute("aria-pressed", String(state.theme === "newsprint"));
+  const paperLabel = document.querySelector("#theme-toggle .toolbar-label");
+  if (paperLabel) paperLabel.textContent = state.theme === "newsprint" ? "Warm paper" : "Paper";
+  const paperIcon = document.querySelector("#theme-toggle .theme-icon");
+  if (paperIcon) paperIcon.innerHTML = state.theme === "newsprint" ? moonIcon() : sunIcon();
   updateFocusModeButtons();
 }
 
@@ -820,7 +873,7 @@ function updateTypographyLabels() {
 }
 
 function toggleTheme() {
-  state.theme = state.theme === "night" ? "paper" : "night";
+  state.theme = state.theme === "newsprint" ? "paper" : "newsprint";
   applyReaderPreferences();
 }
 
@@ -1254,8 +1307,12 @@ function showReaderToast(message) {
   showReaderToast.timeout = setTimeout(() => toast.classList.remove("is-visible"), 2200);
 }
 
+function articleWordCount() {
+  return (state.article?.text || state.article?.html || "").replace(/<[^>]+>/g, " ").trim().split(/\s+/).filter(Boolean).length;
+}
+
 function estimateReadingMinutes() {
-  const words = (state.article?.text || state.article?.html || "").replace(/<[^>]+>/g, " ").trim().split(/\s+/).filter(Boolean).length;
+  const words = articleWordCount();
   return Math.max(1, Math.round(words / 220));
 }
 
@@ -1530,13 +1587,7 @@ function bindSelectionPopover() {
     }
 
     popover.innerHTML = `
-      ${HIGHLIGHT_COLORS.slice(0, 4)
-        .map(
-          (color) =>
-            `<button class="swatch" type="button" title="${color.label}" data-color="${color.id}" style="--swatch-color:${color.value}"></button>`
-        )
-        .join("")}
-      <span class="popover-divider" aria-hidden="true"></span>
+      <button class="selection-action" type="button" data-color="yellow" title="Highlight selected text">${highlightIcon()}<span>Highlight</span></button>
       <button class="selection-action" type="button" data-assist="translate" title="Translate selected text">${translateIcon()}<span>Translate</span></button>
       <button class="selection-action" type="button" data-assist="explain" title="Explain selected text">${sparkIcon()}<span>Explain</span></button>
       <button class="selection-action is-primary" type="button" data-note="true" title="Add note">${noteIcon()}<span>Note</span></button>
@@ -1551,11 +1602,12 @@ function bindSelectionPopover() {
     });
 
     const rect = selection.getRangeAt(0).getBoundingClientRect();
-    const popoverWidth = Math.min(520, window.innerWidth - 28);
+    popover.style.width = "max-content";
+    popover.style.maxWidth = `${window.innerWidth - 28}px`;
+    popover.classList.add("is-visible");
+    const popoverWidth = popover.getBoundingClientRect().width;
     popover.style.left = `${clamp(rect.left + rect.width / 2 - popoverWidth / 2, 14, window.innerWidth - popoverWidth - 14)}px`;
     popover.style.top = `${Math.max(72, rect.top - 58)}px`;
-    popover.style.width = `${popoverWidth}px`;
-    popover.classList.add("is-visible");
   });
 }
 

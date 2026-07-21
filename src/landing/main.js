@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./brutalist.css";
 
 const nav = document.querySelector("[data-site-nav]");
 const menuButton = document.querySelector("[data-menu-button]");
