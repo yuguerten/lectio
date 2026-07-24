@@ -71,7 +71,7 @@ Spacing: 4px base unit.
 - App utility: 44–48px icon control with tooltip and subtle blue hover wash
 - Contents row: two-digit section number, title, 2px blue active rule, no inverted field
 - Selection toolbar: one horizontal row with Highlight, Translate, Explain, and primary Note
-- Highlight: quiet pale-yellow wash; browser selection uses translucent editorial blue
+- Highlight: quiet pale-yellow wash with no border, outline, or focused contour; browser selection uses translucent editorial blue
 - Article heading: serif, sentence case, no automatic numbering or uppercase conversion
 - Article link: editorial blue with a thin underline
 - Blockquote: graphite text with a restrained 3px blue rule
