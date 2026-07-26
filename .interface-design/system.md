@@ -2,145 +2,97 @@
 
 ## Direction
 
-Lectio should feel like a serious technical reading workspace: quiet, textual, and precise, with just enough warmth to support long study sessions. The human is reading a dense article, selecting passages, leaving margin notes, asking for help on selected text, filtering annotations, and exporting useful Markdown without losing their place.
+Lectio is a calm editorial reading tool for people studying long technical articles. The article is the product; navigation and annotation controls exist to preserve reading context, then recede. It should feel like a well-set research edition rather than a dashboard, production sheet, or browser full of utilities.
+
+The marketing site may use a stronger industrial-print voice. The in-extension reader must use this quieter system.
 
 ## Domain
 
-- Reader focus
-- Article extraction
-- Technical prose
-- Selection anchors
-- Highlights
-- Margin notes
-- Annotation filters
-- Reading position
-- Source URL identity
-- Markdown export
-- Assist actions
+- Long-form technical reading
+- Article structure and current section
+- Marginalia and anchored notes
+- Source provenance
+- Listening and reading pace
+- Local bookmarks
+- Citation and export
 
 ## Color World
 
-- Paper white: extracted article canvas and long-form reading background
-- Ink graphite: primary text, tool labels, and note content
-- Margin gray: secondary metadata, separators, disabled controls
-- Highlighter ochre: selected passages and active highlight affordances
-- Anchor blue: links, selected text assist, current reader location
-- Review green: saved notes, successful export, persisted state
-- Correction red: destructive remove actions and failed persistence/export states
+- Clean warm paper: `#FBFAF7`
+- Warm alternate paper: `#F4F1EA`
+- Charcoal reading ink: `#24211D`
+- Muted graphite: `#6C665E`
+- Faint pencil: `#948D84`
+- Editorial link blue: `#245F8F`
+- Quiet error terracotta: `#A65343`
+- Pale annotation yellow: `rgba(232, 207, 128, 0.48)`
+
+Blue communicates navigation, links, focus, and selected tools. Terracotta is reserved for errors. Color is never decorative and never fills large structural regions.
 
 ## Signature
 
-Lectio’s signature is the margin anchor rail: a restrained rail beside the article that ties highlighted passages, note markers, filter state, and reading position back to the text. It should appear in the reader, annotation lists, filtered states, export preview, and assist results so the product feels built around anchored study rather than generic document viewing.
+Lectio’s signature is the quiet article margin: a narrow, numbered contents rail that tracks the active section beside a carefully typeset reading column. The signature appears in active-section navigation, anchored notes, reading progress, and the compact selection toolbar.
 
 ## Rejecting Defaults
 
-- Generic SaaS sidebar with app-wide navigation -> reader-first chrome with compact article tools, annotation filters, export, and assist actions kept close to the text.
-- Card grid of metrics -> text-first article layout with margin-linked notes, selection state, and annotation density shown as reading structure.
-- Purple/blue gradient productivity palette -> paper, graphite, ochre, anchor blue, review green, and correction red mapped to real reading actions.
+- Dashboard chrome -> one 64px utility bar
+- Cover-like dossier panel -> contents-only article margin
+- Metadata wall -> source title in the app bar; details remain available through the source
+- Duplicate calls to action -> one control per action
+- Floating color dashboard -> compact Highlight / Translate / Explain / Note row
+- Sans-serif document treatment -> editorial serif article body
+- Loud black/red state changes -> pale blue state washes and charcoal text
 
 ## Intent Checkpoint
 
-Intent: A focused reader studying technical articles must preserve context, annotate precisely, and export usable notes; the interface should feel calm, exact, and text-led.
+Intent: A person concentrating on a long article must read, navigate, annotate, listen, and export without the interface competing for attention.
 
-Palette: Paper white and ink graphite come from the reading surface; margin gray belongs to article chrome; highlighter ochre, anchor blue, review green, and correction red map to annotation, links/assist, success, and removal.
+Palette: Warm paper reduces glare, charcoal softens contrast, and restrained editorial blue communicates action without visual alarm.
 
-Depth: Borders-only with subtle surface color shifts. Long reading sessions need quiet structure, not floating decorative cards.
+Depth: Borders-only. Low-opacity separators establish the app bar, margin, and popovers. No decorative shadow system.
 
-Surfaces: Warm paper canvas, slightly lifted tool panels, one-level-higher popovers, and darker inset controls for search, filters, and note fields.
+Surfaces: The sidebar and article share one paper canvas. Alternate paper is limited to inputs, inline code, and the optional warm-paper mode.
 
-Typography: Readable article type for prose; compact sans for controls; tabular numerals for counts, positions, and export stats.
+Typography: Georgia/system serif for article prose and headings; Inter/system sans for navigation and controls; system mono only for compact numeric data.
 
 Spacing: 4px base unit.
 
-## Surface Scale
+## Layout
 
-- Canvas: paper white reader background
-- Surface 1: slightly lifted paper for toolbars, side panels, and annotation rows
-- Surface 2: quiet raised paper for popovers, dropdowns, menus, and assist panels
-- Inset: slightly darker paper for search, filters, textareas, and editable note fields
-
-Sidebars or tool rails should share the canvas temperature and separate with low-opacity borders. Popovers sit one level above their trigger. Inputs are inset, not raised.
-
-## Token Architecture
-
-Use product-specific token names where practical:
-
-- `--paper`
-- `--paper-raised`
-- `--paper-popover`
-- `--paper-inset`
-- `--ink`
-- `--ink-secondary`
-- `--ink-tertiary`
-- `--ink-muted`
-- `--margin-line`
-- `--margin-line-soft`
-- `--anchor-blue`
-- `--highlight-ochre`
-- `--review-green`
-- `--correction-red`
-
-Every color should map back to foreground, background, border, brand/action, or semantic meaning. Avoid random decorative accent colors.
-
-## Text Hierarchy
-
-- Primary: article text, note content, active tool labels
-- Secondary: source metadata, annotation summaries, button text
-- Tertiary: timestamps, URL details, counts, export metadata
-- Muted: placeholders, disabled actions, inactive filter hints
-
-Article reading text should have more generous line height than controls. Control labels should stay compact and medium weight.
-
-## Spacing
-
-Base unit: 4px.
-
-- 4px: icon and inline metadata gaps
-- 8px: compact control gaps
-- 12px: annotation row internals
-- 16px: panel padding and toolbar group spacing
-- 24px: section separation
-- 32px: major reader/workspace separation
-
-Keep fixed-format controls stable with explicit dimensions so hover, loading, and filtered states do not shift the reader.
-
-## Depth And Borders
-
-Use borders-only with quiet surface shifts.
-
-- Standard border: article panels, toolbars, annotation rows
-- Soft border: section dividers and rail ticks
-- Emphasis border: active filter, selected annotation, focused note field
-- Focus border: keyboard focus and assist trigger state
-
-Borders should be low-opacity and never be the first thing visible in the reader.
+- App bar: fixed 64px; brand, truncated source title, then icon utilities
+- Article margin: fixed 256px desktop rail containing only contents and collapsed archive
+- Reading field: centered 760px maximum article column
+- Compact breakpoint: rail disappears below 920px
+- Mobile breakpoint: 56px app bar and 18px article gutters
+- Source register, dossier numeral, duplicate audio card, production strip, and colophon remain hidden in the reader
 
 ## Component Patterns
 
-- Reader chrome: compact top or side tools, same visual temperature as the page, with current source and export/assist actions visible without crowding the article.
-- Margin anchor rail: thin position rail with highlight ticks, note markers, and active selection/annotation states.
-- Annotation row: passage excerpt first, note/filter metadata second, actions last. Keep destructive actions visually quiet until hover/focus.
-- Note editor: inset field, stable height, clear save/error state, and visible link back to the anchored passage.
-- Filters: segmented or toggle controls for all/highlights/notes, using ochre and anchor blue only when state is meaningful.
-- Assist result: one surface level above the selected passage or notes panel; preserve the source excerpt so explanation/translation stays grounded.
-- Markdown export: preview should read like an output document, not a modal full of settings; export status uses review green or correction red.
+- App utility: 44–48px icon control with tooltip and subtle blue hover wash
+- Contents row: two-digit section number, title, 2px blue active rule, no inverted field
+- Selection toolbar: one horizontal row with Highlight, Translate, Explain, and primary Note
+- Highlight: quiet pale-yellow wash with no border, outline, or focused contour; browser selection uses translucent editorial blue
+- Article heading: serif, sentence case, no automatic numbering or uppercase conversion
+- Article link: editorial blue with a thin underline
+- Blockquote: graphite text with a restrained 3px blue rule
+- Popover: paper surface, low-opacity border, 7px radius
 
 ## Interaction States
 
-Every control needs default, hover, active, focus, disabled, loading, empty, and error states where applicable.
+- Hover: pale blue wash with blue foreground
+- Active/current: pale blue wash plus a small blue rule where orientation matters
+- Focus: translucent 2px blue outline
+- Bookmarked: blue icon with a 2px blue bottom rule
+- Error: terracotta text or wash, never a large filled error control
+- Motion: 120ms ease for state changes; no bounce or page-level animation
 
-Selection and annotation states should be visually distinct:
+## Non-Negotiables
 
-- Text selected but not saved: anchor blue
-- Highlight saved: highlighter ochre
-- Note attached: graphite marker with paper surface
-- Filter match: emphasized rail marker and row border
-- Export success: review green
-- Remove/failure: correction red
-
-## Validation Checks
-
-- Swap test: replacing the margin anchor rail with a generic progress bar should noticeably weaken the interface.
-- Squint test: article text, active selection, and current annotation/filter state should remain clear without harsh borders.
-- Signature test: the margin anchor rail should appear in at least five reusable contexts: reader, annotation list, filtered state, export preview, assist result, or source overview.
-- Token test: token names should sound like reading, margins, ink, anchors, highlights, and notes rather than generic SaaS surfaces.
+- The article remains the strongest element after the squint test
+- No viewport-scale numerals or decorative production metadata in the reader
+- No saturated red or pure-black structural fields
+- No duplicate action entry points in the reading plane
+- No multicolor swatch row in the selection toolbar
+- Sidebar and content use the same canvas color
+- Article prose remains hard-left, serif, and comfortably spaced
+- Controls retain labels through accessible names and tooltips when visually icon-only

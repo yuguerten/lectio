@@ -1,0 +1,233 @@
+.pdf-export-stage {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  z-index: -1;
+  width: 760px;
+  overflow: visible;
+  pointer-events: none;
+  background: #fffefb;
+}
+
+.pdf-export-document {
+  position: relative;
+  box-sizing: border-box;
+  width: 760px;
+  margin: 0;
+  padding: 0 0 48px;
+  overflow: visible;
+  background: #fffefb;
+  color: #24211d;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.pdf-export-document *,
+.pdf-export-document *::before,
+.pdf-export-document *::after {
+  box-sizing: border-box;
+}
+
+.pdf-export-masthead {
+  margin: 0 0 42px;
+  padding: 30px 0 22px;
+  border-top: 5px solid #24211d;
+  border-bottom: 1px solid #b9b1a5;
+}
+
+.pdf-export-register,
+.pdf-export-source-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.pdf-export-signature {
+  font-family: Inter, Arial, sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+}
+
+.pdf-export-edition {
+  margin-left: 10px;
+  color: #6e675f;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.pdf-export-date {
+  color: #6e675f;
+  white-space: nowrap;
+}
+
+.pdf-export-masthead h1 {
+  max-width: 660px;
+  margin: 38px 0 15px;
+  color: #24211d;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 35px;
+  font-weight: 760;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.pdf-export-source-line {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 7px 18px;
+  color: #6e675f;
+  letter-spacing: 0.035em;
+  text-transform: none;
+}
+
+.pdf-export-source-line a {
+  color: #315f87;
+  text-decoration: none;
+}
+
+.pdf-export-document > .article {
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  color: #24211d !important;
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-size: 16px !important;
+  line-height: 1.62 !important;
+}
+
+.pdf-export-document > .article h1,
+.pdf-export-document > .article h2,
+.pdf-export-document > .article h3,
+.pdf-export-document > .article h4 {
+  color: #24211d !important;
+  font-family: Inter, Arial, sans-serif !important;
+  break-after: avoid;
+}
+
+.pdf-export-document > .article h1 {
+  margin: 34px 0 14px !important;
+  font-size: 28px !important;
+}
+
+.pdf-export-document > .article h2 {
+  margin: 38px 0 13px !important;
+  font-size: 23px !important;
+  line-height: 1.2 !important;
+}
+
+.pdf-export-document > .article h3 {
+  margin: 28px 0 10px !important;
+  font-size: 19px !important;
+}
+
+.pdf-export-document > .article p,
+.pdf-export-document > .article li,
+.pdf-export-document > .article blockquote {
+  orphans: 3;
+  widows: 3;
+}
+
+.pdf-export-document > .article img,
+.pdf-export-document > .article video,
+.pdf-export-document > .article svg {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.pdf-export-document .article-table-scroll {
+  width: 100%;
+  margin: 22px 0;
+  overflow: visible;
+  border: 1px solid #cbc4ba;
+  border-radius: 0;
+}
+
+.pdf-export-document table {
+  width: 100% !important;
+  min-width: 0 !important;
+  border-collapse: collapse !important;
+  font-size: 13px !important;
+}
+
+.pdf-export-document th,
+.pdf-export-document td {
+  padding: 8px 9px !important;
+  border: 1px solid #d8d1c7 !important;
+  color: #24211d !important;
+  white-space: normal !important;
+}
+
+.pdf-export-document pre,
+.pdf-export-document .code-card,
+.pdf-export-document table,
+.pdf-export-document figure,
+.pdf-export-document blockquote,
+.pdf-export-document .print-note {
+  break-inside: avoid;
+}
+
+.pdf-export-document pre,
+.pdf-export-document .code-card {
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+.pdf-export-document .code-card pre,
+.pdf-export-document pre {
+  padding: 15px !important;
+  border: 1px solid #cbc4ba !important;
+  background: #f3f0eb !important;
+  color: #24211d !important;
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+}
+
+.pdf-export-document .highlight {
+  border-radius: 2px;
+  box-shadow: inset 0 -0.45em rgba(245, 201, 72, 0.5);
+}
+
+.pdf-export-document > .print-notes {
+  display: block;
+  margin: 48px 0 0;
+  padding: 26px 0 0;
+  border-top: 1px solid #b9b1a5;
+  page-break-before: always;
+}
+
+.pdf-export-document > .print-notes:empty {
+  display: none;
+}
+
+.pdf-export-document > .print-notes h2 {
+  margin: 0 0 20px;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 25px;
+}
+
+.pdf-export-document .print-drawing-summary {
+  display: none;
+}
+
+.pdf-export-document .print-note {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-left: 3px solid #315f87;
+  background: #f4f1ec;
+}
+
+.pdf-export-document .print-note h3,
+.pdf-export-document .print-note p,
+.pdf-export-document .print-note blockquote {
+  margin-top: 0;
+}

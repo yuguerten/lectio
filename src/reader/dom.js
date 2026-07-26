@@ -30,6 +30,23 @@ export function sanitizeArticleHtml(html) {
   return template.innerHTML;
 }
 
+export function enhanceArticleTables(articleRoot) {
+  if (!articleRoot) return;
+
+  for (const table of articleRoot.querySelectorAll("table")) {
+    if (!table.parentNode || table.closest(".article-table-scroll")) continue;
+    const caption = (table.querySelector("caption")?.textContent || "").replace(/\s+/g, " ").trim();
+    const label = caption || table.getAttribute?.("aria-label") || "Scrollable data table";
+    const wrapper = document.createElement("div");
+    wrapper.className = "article-table-scroll";
+    wrapper.setAttribute("role", "region");
+    wrapper.setAttribute("tabindex", "0");
+    wrapper.setAttribute("aria-label", label);
+    table.parentNode.insertBefore(wrapper, table);
+    wrapper.append(table);
+  }
+}
+
 function isAllowedInteractiveIframe(iframe) {
   const src = iframe.getAttribute("src") || "";
   return Boolean(iframe.closest(".lectio-interactive-plot") && iframe.hasAttribute("data-lectio-interactive-iframe") && /^https?:\/\//i.test(src));

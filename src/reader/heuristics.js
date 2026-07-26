@@ -20,6 +20,17 @@ export function isStandaloneCodeParagraph(text) {
   return (hasCodePunctuation && hasCodeKeyword) || isTerminalSnippet(trimmed);
 }
 
+export function shouldEnhanceCodeBlock(text, options = {}) {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (options.explicitLanguage) return true;
+  if (isTerminalSnippet(trimmed) || isStandaloneCodeParagraph(trimmed)) return true;
+  if (!options.preformatted) return false;
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  return !looksLikeProse(trimmed, words);
+}
+
 function looksLikeProse(text, words = text.trim().split(/\s+/).filter(Boolean)) {
   if (words.length >= 18 && /[.!?]/.test(text)) return true;
   if (/^[A-Z][a-z]+\s+/.test(text) && /[.!?]$/.test(text)) return true;

@@ -1,4 +1,7 @@
+import "../shared/palette.css";
 import "./styles.css";
+import "./brutalist.css";
+import "./minimalist.css";
 
 const nav = document.querySelector("[data-site-nav]");
 const menuButton = document.querySelector("[data-menu-button]");

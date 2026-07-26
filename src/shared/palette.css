@@ -1,0 +1,21 @@
+/* Lectio's product palette is shared by the marketing preview and reader UI.
+   Surface-specific styles should map to these tokens instead of duplicating
+   color values, so the experience stays visually continuous after install. */
+
+:root {
+  --lectio-canvas: #fbfaf7;
+  --lectio-canvas-warm: #f4f1ea;
+  --lectio-ink: #24211d;
+  --lectio-text-secondary: #6c665e;
+  --lectio-text-tertiary: #948d84;
+  --lectio-blue: #245f8f;
+  --lectio-blue-strong: #194b72;
+  --lectio-blue-soft: rgba(36, 95, 143, 0.09);
+  --lectio-blue-selection: rgba(36, 95, 143, 0.18);
+  --lectio-blue-focus: rgba(36, 95, 143, 0.42);
+  --lectio-rule: rgba(36, 33, 29, 0.14);
+  --lectio-rule-soft: rgba(36, 33, 29, 0.08);
+  --lectio-highlight: rgba(232, 207, 128, 0.48);
+  --lectio-error: #a65343;
+  --lectio-error-soft: rgba(166, 83, 67, 0.09);
+}
