@@ -1,3 +1,4 @@
+import "../shared/palette.css";
 import "./styles.css";
 import "./brutalist.css";
 import "./minimalist.css";

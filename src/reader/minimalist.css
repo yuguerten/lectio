@@ -3,18 +3,18 @@
    a second document around the document. */
 
 :root {
-  --reader-canvas: #fbfaf7;
-  --reader-canvas-warm: #f4f1ea;
-  --reader-ink: #24211d;
-  --reader-secondary: #6c665e;
-  --reader-tertiary: #948d84;
-  --reader-blue: #245f8f;
-  --reader-blue-strong: #194b72;
-  --reader-blue-soft: rgba(36, 95, 143, 0.09);
-  --reader-error: #a65343;
-  --reader-error-soft: rgba(166, 83, 67, 0.09);
-  --reader-rule: rgba(36, 33, 29, 0.14);
-  --reader-rule-soft: rgba(36, 33, 29, 0.08);
+  --reader-canvas: var(--lectio-canvas);
+  --reader-canvas-warm: var(--lectio-canvas-warm);
+  --reader-ink: var(--lectio-ink);
+  --reader-secondary: var(--lectio-text-secondary);
+  --reader-tertiary: var(--lectio-text-tertiary);
+  --reader-blue: var(--lectio-blue);
+  --reader-blue-strong: var(--lectio-blue-strong);
+  --reader-blue-soft: var(--lectio-blue-soft);
+  --reader-error: var(--lectio-error);
+  --reader-error-soft: var(--lectio-error-soft);
+  --reader-rule: var(--lectio-rule);
+  --reader-rule-soft: var(--lectio-rule-soft);
   --reader-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --reader-serif: Georgia, "Times New Roman", serif;
   --reader-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
@@ -93,7 +93,7 @@ body,
 }
 
 .workspace ::selection {
-  background: rgba(36, 95, 143, 0.2);
+  background: var(--lectio-blue-selection);
   color: var(--reader-ink);
 }
 
@@ -473,6 +473,76 @@ body,
   color: var(--reader-secondary);
 }
 
+.article-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  margin: 2.2em 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border: 1px solid var(--reader-rule);
+  border-radius: 6px !important;
+  background: var(--reader-canvas);
+  scrollbar-gutter: stable;
+}
+
+.article-table-scroll:focus-visible {
+  outline: 2px solid var(--lectio-blue-focus);
+  outline-offset: 3px;
+}
+
+.article-table-scroll table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+  background: var(--reader-canvas);
+  color: var(--reader-ink);
+  font-family: var(--reader-sans);
+  font-size: 0.72em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.article-table-scroll caption {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--reader-rule);
+  background: var(--reader-canvas-warm);
+  color: var(--reader-ink);
+  font-weight: 700;
+  text-align: start;
+}
+
+.article-table-scroll th,
+.article-table-scroll td {
+  min-width: 7rem;
+  padding: 12px 14px;
+  border-right: 1px solid var(--reader-rule);
+  border-bottom: 1px solid var(--reader-rule);
+  text-align: start;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.article-table-scroll th {
+  background: var(--reader-canvas-warm);
+  color: var(--reader-ink);
+  font-weight: 700;
+}
+
+.article-table-scroll tbody th {
+  background: color-mix(in srgb, var(--reader-canvas-warm) 58%, var(--reader-canvas));
+}
+
+.article-table-scroll tr:last-child > * {
+  border-bottom: 0;
+}
+
+.article-table-scroll tr > *:last-child {
+  border-right: 0;
+}
+
 .article img,
 .article video,
 .lectio-interactive-plot {
@@ -500,24 +570,167 @@ body,
 }
 
 .code-card {
-  border: 0;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--reader-rule);
   border-radius: 6px !important;
-  background: #292724;
+  background: var(--reader-canvas-warm);
 }
 
-.code-card figcaption,
+.code-card figcaption {
+  min-height: 40px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--reader-rule-soft);
+  background: var(--reader-canvas);
+  color: var(--reader-tertiary);
+  font-family: var(--reader-sans);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.code-card.is-code,
+.code-card.is-terminal {
+  border-color: var(--reader-rule);
+  background: var(--reader-canvas-warm);
+}
+
+.code-card.is-code figcaption,
+.code-card.is-terminal figcaption {
+  min-height: 40px;
+  background: var(--reader-canvas);
+  color: var(--reader-tertiary);
+}
+
+.code-card-heading {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.code-card-mark {
+  width: 3px;
+  height: 14px;
+  flex: 0 0 auto;
+  background: var(--reader-blue);
+}
+
+.code-card-language {
+  overflow: hidden;
+  color: var(--reader-secondary);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.code-card-lines {
+  color: var(--reader-tertiary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .code-card pre,
 .code-card.is-code pre,
 .code-card.is-terminal pre {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: #292724;
+  position: relative;
+  margin: 0;
+  padding: 20px 24px 22px 52px;
+  border: 0;
+  background: var(--reader-canvas-warm);
+  color: var(--reader-ink);
+  font-family: var(--reader-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  tab-size: 2;
+}
+
+.code-card pre::before {
+  position: absolute;
+  top: 22px;
+  bottom: 22px;
+  left: 15px;
+  width: 21px;
+  padding-right: 9px;
+  border-right: 1px solid var(--reader-rule);
+  color: var(--reader-blue);
+  content: attr(data-folio);
+  font-family: var(--reader-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-align: right;
+  writing-mode: vertical-rl;
+}
+
+.code-card code,
+.code-card.is-code code,
+.code-card.is-terminal code {
+  color: var(--reader-ink);
+  font-family: var(--reader-mono);
+  font-size: inherit;
+}
+
+.copy-code {
+  width: auto;
+  height: 30px;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 3px !important;
+  background: transparent;
+  color: var(--reader-tertiary);
+  font-family: var(--reader-sans);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.copy-code:hover {
+  border-color: var(--reader-rule);
+  background: var(--reader-blue-soft);
+  color: var(--reader-blue);
+}
+
+.copy-code:focus-visible {
+  border-color: rgba(36, 95, 143, 0.38);
+  background: var(--reader-blue-soft);
+  color: var(--reader-blue);
+}
+
+.copy-code.is-copied {
+  border-color: rgba(36, 95, 143, 0.24);
+  background: var(--reader-blue-soft);
+  color: var(--reader-blue);
+}
+
+@media (max-width: 700px) {
+  .code-card pre,
+  .code-card.is-code pre,
+  .code-card.is-terminal pre {
+    padding: 16px 18px 18px 42px;
+    font-size: 12px;
+  }
+
+  .code-card pre::before {
+    top: 18px;
+    bottom: 18px;
+    left: 11px;
+    width: 18px;
+    padding-right: 7px;
+  }
 }
 
 .highlight,
 .workspace.theme-night .highlight {
   padding: 0 2px;
   border: 0;
-  background: rgba(232, 207, 128, 0.48) !important;
+  background: var(--lectio-highlight) !important;
   color: var(--reader-ink) !important;
 }
 
@@ -696,7 +909,7 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 2px solid rgba(36, 95, 143, 0.42);
+  outline: 2px solid var(--lectio-blue-focus);
   outline-offset: 2px;
 }
 
@@ -809,6 +1022,197 @@ select:focus-visible {
     width: 38px;
     padding: 0;
   }
+}
+
+/* Anchored marginalia: compact, contextual, and subordinate to the article. */
+.comment-popover {
+  width: min(336px, calc(100vw - 28px));
+}
+
+.comment-popover.is-visible .pdf-comment {
+  animation: note-popover-in 120ms ease-out;
+}
+
+.pdf-comment {
+  overflow: hidden;
+  border: 1px solid var(--reader-rule);
+  border-left: 3px solid var(--note-color);
+  border-radius: 7px !important;
+  background: var(--paper-popover);
+  box-shadow: none;
+}
+
+.pdf-comment-header {
+  min-height: 48px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--margin-line-soft);
+  background: var(--paper-popover);
+}
+
+.note-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.note-heading > div {
+  display: grid;
+  gap: 1px;
+}
+
+.note-heading strong {
+  color: var(--reader-ink);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 680;
+  line-height: 1.2;
+}
+
+.note-heading [data-note-status] {
+  color: var(--reader-tertiary);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.note-color-dot {
+  width: 8px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--note-color);
+}
+
+.pdf-comment-header button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px !important;
+  background: transparent;
+  color: var(--reader-secondary);
+}
+
+.pdf-comment-header button:hover {
+  border: 0;
+  background: var(--reader-blue-soft);
+  color: var(--reader-blue);
+}
+
+.note-context {
+  display: -webkit-box;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid var(--margin-line-soft);
+  background: var(--paper-inset);
+  color: var(--reader-secondary);
+  font-family: Georgia, "Source Serif 4", Charter, serif;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pdf-comment .note-editor {
+  display: block;
+  width: calc(100% - 24px);
+  min-height: 88px;
+  max-height: 184px;
+  margin: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--margin-line-soft);
+  border-radius: 5px;
+  outline: 0;
+  background: var(--paper-inset);
+  color: var(--reader-ink);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.pdf-comment .note-editor::placeholder {
+  color: var(--reader-tertiary);
+}
+
+.pdf-comment .note-editor:focus {
+  border-color: var(--reader-blue-line);
+  box-shadow: 0 0 0 3px var(--reader-blue-soft);
+}
+
+.pdf-comment .note-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--margin-line-soft);
+}
+
+.pdf-comment .note-actions button {
+  display: inline-flex;
+  width: auto;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px !important;
+  background: transparent;
+  color: var(--reader-secondary);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.pdf-comment .note-actions button:hover {
+  border: 0;
+  background: var(--reader-blue-soft);
+  color: var(--reader-blue);
+}
+
+.pdf-comment .note-actions .note-delete {
+  width: 30px;
+  justify-content: center;
+  padding: 0;
+  color: var(--reader-tertiary);
+}
+
+.pdf-comment .note-actions .note-delete:hover {
+  background: var(--correction-red-soft);
+  color: var(--correction-red);
+}
+
+/* Drawing inks: compact swatches with explicit selected state. */
+.drawing-swatches {
+  gap: 4px;
+  padding: 0 6px;
+  border-right: 1px solid var(--reader-rule);
+  border-left: 1px solid var(--reader-rule);
+}
+
+.drawing-swatch {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border: 2px solid var(--reader-canvas);
+  border-radius: 999px;
+  background: var(--drawing-color) !important;
+  box-shadow: 0 0 0 1px var(--reader-rule);
+}
+
+.drawing-swatch:hover {
+  transform: scale(1.08);
+}
+
+.drawing-swatch.is-active {
+  outline: 2px solid var(--reader-blue);
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
 @media print {

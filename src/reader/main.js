@@ -1,6 +1,8 @@
+import "../shared/palette.css";
 import "./styles.css";
 import "./brutalist.css";
 import "./minimalist.css";
+import "./pdfExport.css";
 import {
   HIGHLIGHT_COLORS,
   createAnnotation,
@@ -18,12 +20,19 @@ import {
   createDrawingStore,
   createSmartOutlineStore
 } from "../core/localPersistence.js";
-import { getListenText, renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
-import { isImplicitHeadingText, isStandaloneCodeParagraph, isTerminalSnippet } from "./heuristics.js";
+import { enhanceArticleTables, getListenText, renderHighlights, renderSearchHighlights, sanitizeArticleHtml } from "./dom.js";
+import { isImplicitHeadingText, isStandaloneCodeParagraph, isTerminalSnippet, shouldEnhanceCodeBlock } from "./heuristics.js";
+import { createLectioPdfFilename, createPdfPageSlices, formatLectioExportDate } from "./pdfExport.js";
 
 const colorMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.value]));
-const colorLabelMap = new Map(HIGHLIGHT_COLORS.map((color) => [color.id, color.label]));
-const DRAWING_COLORS = ["#24211d", "#245f8f"];
+const DRAWING_COLORS = [
+  { value: "#24211d", label: "Charcoal" },
+  { value: "#245f8f", label: "Editorial blue" },
+  { value: "#b57a20", label: "Ochre" },
+  { value: "#3f7652", label: "Margin green" },
+  { value: "#a65343", label: "Terracotta" },
+  { value: "#765a8d", label: "Violet" }
+];
 const ASSIST_LANGUAGES = [
   { value: "en", label: "English", flag: "🇬🇧", direction: "ltr" },
   { value: "fr", label: "French", flag: "🇫🇷", direction: "ltr" },
@@ -97,7 +106,7 @@ const state = {
   drawing: {
     enabled: false,
     tool: "pen",
-    color: DRAWING_COLORS[0],
+    color: DRAWING_COLORS[0].value,
     size: 4,
     activeStroke: null,
     redoStack: []
@@ -181,7 +190,7 @@ function renderWorkspace() {
           </div>
           <div class="toolbar-group toolbar-content">
             <button id="draw-toggle" class="toolbar-button toolbar-labeled" type="button" aria-pressed="false" title="Draw on page (D)" aria-label="Draw on page"><span class="toolbar-icon">${drawIcon()}</span><span class="toolbar-label">Draw</span><kbd class="shortcut-badge" aria-hidden="true">D</kbd></button>
-            <button id="export-pdf" class="toolbar-button toolbar-labeled export-button" type="button" title="Export PDF" aria-label="Export PDF"><span class="toolbar-icon">${downloadIcon()}</span><span class="toolbar-label">Export</span></button>
+            <button id="export-pdf" class="toolbar-button toolbar-labeled export-button" type="button" title="Download PDF" aria-label="Download PDF"><span class="toolbar-icon">${downloadIcon()}</span><span class="toolbar-label">Download</span></button>
             <button id="bookmark-top" class="toolbar-button toolbar-labeled bookmark-button ${isCurrentArticleBookmarked() ? "is-bookmarked" : ""}" type="button" title="${isCurrentArticleBookmarked() ? "Bookmarked" : "Bookmark article (B)"}" aria-label="${isCurrentArticleBookmarked() ? "Article bookmarked" : "Bookmark article"}" aria-pressed="${isCurrentArticleBookmarked() ? "true" : "false"}"><span class="toolbar-icon">${bookmarkIcon(isCurrentArticleBookmarked())}</span><span class="toolbar-label">Bookmark</span><kbd class="shortcut-badge" aria-hidden="true">B</kbd></button>
           </div>
           <div class="toolbar-group toolbar-settings">
@@ -297,7 +306,7 @@ function renderWorkspace() {
         <button class="icon-tool" type="button" data-tool="ellipse" title="Ellipse (O)">${ellipseIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">O</kbd></button>
         <button class="icon-tool" type="button" data-tool="eraser" title="Eraser (E)">${eraserIcon()}<kbd class="shortcut-badge draw-shortcut" aria-hidden="true">E</kbd></button>
         <div class="drawing-swatches" aria-label="Drawing color">
-          ${DRAWING_COLORS.map((color) => `<button class="drawing-swatch" type="button" data-color="${color}" title="${color}" style="background:${color}"></button>`).join("")}
+          ${DRAWING_COLORS.map(({ value, label }) => `<button class="drawing-swatch" type="button" data-color="${value}" title="${label}" aria-label="${label} drawing color" aria-pressed="false" style="--drawing-color:${value}"></button>`).join("")}
         </div>
         <label class="size-control" title="Brush size">
           <input id="draw-size" type="range" min="2" max="18" value="4" />
@@ -389,6 +398,7 @@ function updateBookmarkButton() {
 function renderArticleAndMargin(options = {}) {
   const articleRoot = document.querySelector("#article");
   articleRoot.innerHTML = sanitizeArticleHtml(state.article.html);
+  enhanceArticleTables(articleRoot);
   prepareArticleHeadings(articleRoot);
   markArticleCaptions(articleRoot);
   updateSmartOutlineChunks(articleRoot);
@@ -1533,20 +1543,53 @@ function enhanceCodeBlocks(articleRoot) {
     seen.add(block);
     const rawCode = block.textContent.trim();
     if (!rawCode) return;
+    const className = `${block.className || ""} ${block.querySelector?.("code")?.className || ""}`;
+    const explicitLanguage = /(?:language|lang)-[\w-]+/i.test(className);
+    const preformatted = block.tagName === "PRE" || rawCode.includes("\n");
+    if (!shouldEnhanceCodeBlock(rawCode, { explicitLanguage, preformatted })) return;
+
     const language = detectCodeLanguage(block, rawCode);
+    const lineCount = rawCode.split("\n").length;
+    const lineLabel = `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
+    const folioLabel = lineCount === 1 ? "L01" : `L01–${String(lineCount).padStart(2, "0")}`;
     const wrapper = document.createElement("figure");
     wrapper.className = language === "Terminal" ? "code-card is-terminal" : "code-card is-code";
     wrapper.dataset.language = language;
     const header = document.createElement("figcaption");
     header.dataset.language = language;
-    header.innerHTML = `<span class="window-dots" aria-hidden="true"><span></span><span></span><span></span></span><button type="button" class="copy-code" title="Copy code" aria-label="Copy code">${copyIcon()}</button>`;
+    header.innerHTML = `
+      <span class="code-card-heading">
+        <span class="code-card-mark" aria-hidden="true"></span>
+        <span class="code-card-language">${escapeHtml(language)}</span>
+        <span class="code-card-lines">${lineLabel}</span>
+      </span>
+      <button type="button" class="copy-code" title="Copy code" aria-label="Copy code">
+        ${copyIcon()}
+        <span class="copy-code-label">Copy</span>
+      </button>
+    `;
     const pre = document.createElement("pre");
+    pre.dataset.folio = folioLabel;
     const code = document.createElement("code");
     code.textContent = rawCode;
     pre.append(code);
     wrapper.append(header, pre);
     block.replaceWith(wrapper);
-    wrapper.querySelector("button").addEventListener("click", () => copyText(rawCode, "Code copied"));
+    const copyButton = wrapper.querySelector(".copy-code");
+    const copyLabel = copyButton.querySelector(".copy-code-label");
+    let copiedReset;
+    copyButton.addEventListener("click", async () => {
+      await copyText(rawCode, "Code copied");
+      window.clearTimeout(copiedReset);
+      copyButton.classList.add("is-copied");
+      copyButton.setAttribute("aria-label", "Code copied");
+      copyLabel.textContent = "Copied";
+      copiedReset = window.setTimeout(() => {
+        copyButton.classList.remove("is-copied");
+        copyButton.setAttribute("aria-label", "Copy code");
+        copyLabel.textContent = "Copy";
+      }, 1800);
+    });
   });
 }
 
@@ -1698,32 +1741,37 @@ function renderCommentPopover(annotation, target) {
   const color = annotation.color || "yellow";
   const colorValue = colorMap.get(color) || colorMap.get("yellow");
   popover.innerHTML = `
-    <section class="pdf-comment" style="--note-color: ${colorValue}; --note-wash: ${noteWash(color)}">
+    <section class="pdf-comment" aria-label="Note on highlighted text" style="--note-color: ${colorValue}; --note-wash: ${noteWash(color)}">
       <div class="pdf-comment-header">
-        <span class="note-color"><span aria-hidden="true"></span>${escapeHtml(colorLabelMap.get(color) || color)}</span>
-        <button type="button" data-action="close" title="Close comment">${xIcon()}</button>
+        <div class="note-heading">
+          <span class="note-color-dot" aria-hidden="true"></span>
+          <div><strong>Note</strong><span data-note-status>Autosaves</span></div>
+        </div>
+        <button type="button" data-action="close" title="Close note" aria-label="Close note">${xIcon()}</button>
       </div>
-      <textarea class="note-editor floating-editor" data-action="edit" placeholder="Write a comment...">${escapeHtml(annotation.note.trim())}</textarea>
+      <blockquote class="note-context">${escapeHtml(shortQuote(annotation.anchor.exact, 150))}</blockquote>
+      <textarea class="note-editor floating-editor" data-action="edit" placeholder="Add your note…" aria-label="Note text">${escapeHtml(annotation.note.trim())}</textarea>
       <div class="note-actions pdf-actions">
-        <button type="button" data-action="jump" title="Jump to highlight">${pencilIcon()}</button>
-        <button type="button" data-action="copy" title="Copy comment">${copyIcon()}</button>
-        <button type="button" data-action="delete" title="Delete comment">${trashIcon()}</button>
+        <button type="button" data-action="copy" title="Copy note">${copyIcon()}<span>Copy</span></button>
+        <button class="note-delete" type="button" data-action="delete" title="Delete note" aria-label="Delete note">${trashIcon()}</button>
       </div>
     </section>
   `;
 
   const rect = target?.getBoundingClientRect?.() || { left: window.innerWidth / 2, top: 140, width: 0, bottom: 160 };
-  const popoverWidth = Math.min(380, window.innerWidth - 28);
+  const popoverWidth = Math.min(336, window.innerWidth - 28);
   const preferredLeft = rect.left + rect.width + 16;
   const fallbackLeft = rect.left - popoverWidth - 16;
-  const left = preferredLeft + popoverWidth <= window.innerWidth - 14 ? preferredLeft : Math.max(14, fallbackLeft);
-  const top = Math.min(window.innerHeight - 280, Math.max(88, rect.bottom + 8));
+  const opensRight = preferredLeft + popoverWidth <= window.innerWidth - 14;
+  const left = opensRight ? preferredLeft : Math.max(14, fallbackLeft);
   popover.style.left = `${left}px`;
-  popover.style.top = `${Math.max(88, top)}px`;
+  popover.dataset.side = opensRight ? "right" : "left";
   popover.classList.add("is-visible");
+  const popoverHeight = popover.offsetHeight;
+  const top = Math.min(window.innerHeight - popoverHeight - 14, Math.max(76, rect.top));
+  popover.style.top = `${Math.max(14, top)}px`;
 
   popover.querySelector('[data-action="close"]').addEventListener("click", closeCommentPopover);
-  popover.querySelector('[data-action="jump"]').addEventListener("click", () => scrollToHighlight(annotation.id));
   popover.querySelector('[data-action="copy"]').addEventListener("click", () => copyAnnotation(annotation.id));
   popover.querySelector('[data-action="delete"]').addEventListener("click", async () => {
     await removeAnnotation(annotation.id);
@@ -1731,13 +1779,26 @@ function renderCommentPopover(annotation, target) {
   });
 
   const textarea = popover.querySelector("textarea");
-  textarea.addEventListener("blur", async () => {
+  const status = popover.querySelector("[data-note-status]");
+  let saveTimeout = null;
+  const saveNote = async () => {
+    clearTimeout(saveTimeout);
     await saveAnnotations(updateAnnotation(state.annotations, annotation.id, { note: textarea.value, type: "note" }));
+    status.textContent = "Saved";
+  };
+  textarea.addEventListener("input", () => {
+    status.textContent = "Editing…";
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveNote, 500);
+  });
+  textarea.addEventListener("blur", async () => {
+    await saveNote();
   });
   textarea.addEventListener("keydown", async (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") textarea.blur();
     if (event.key === "Escape" && textarea.value.trim() === "") {
       event.preventDefault();
+      clearTimeout(saveTimeout);
       await removeAnnotation(annotation.id);
       closeCommentPopover();
     }
@@ -1910,8 +1971,10 @@ function updateDrawingControls() {
   document.querySelectorAll("[data-tool]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.tool === state.drawing.tool);
   });
-  document.querySelectorAll("[data-color]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.color === state.drawing.color);
+  document.querySelectorAll("#drawing-tools [data-color]").forEach((button) => {
+    const active = button.dataset.color === state.drawing.color;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
   const sizeInput = document.querySelector("#draw-size");
   if (sizeInput) sizeInput.value = state.drawing.size;
@@ -2160,7 +2223,10 @@ async function saveDrawings() {
   await drawingStore.save(state.article.id, state.drawings);
 }
 
-function exportPdf() {
+async function exportPdf() {
+  const button = document.querySelector("#export-pdf");
+  if (!button || button.getAttribute("aria-busy") === "true") return;
+
   closeSearchPopover();
   closeFilterPopover();
   closeTypographyPopover();
@@ -2169,9 +2235,152 @@ function exportPdf() {
   closeReviewModal();
   cancelDrawing();
   renderPrintNotes();
-  resizeDrawingCanvas();
-  document.title = (state.article.title || "Lectio") + " - annotated";
-  requestAnimationFrame(() => window.print());
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.querySelector(".toolbar-label").textContent = "Preparing";
+  showReaderToast("Preparing your Lectio PDF…");
+
+  const exportedAt = new Date();
+  const exportDocument = createPdfExportDocument(exportedAt);
+  const exportStage = document.createElement("div");
+  exportStage.className = "pdf-export-stage";
+  exportStage.append(exportDocument);
+  document.body.append(exportStage);
+
+  try {
+    await document.fonts?.ready;
+    await waitForExportImages(exportDocument);
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+    const canvas = await html2canvas(exportDocument, {
+      backgroundColor: "#fffefb",
+      imageTimeout: 5000,
+      logging: false,
+      scale: 1.5,
+      useCORS: true,
+      windowWidth: 760
+    });
+    const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4", compress: true, putOnlyUsedFonts: true });
+    pdf.setProperties({
+      title: state.article.title || "Lectio article",
+      subject: "Article exported from Lectio Reader",
+      author: state.article.byline || state.article.siteName || "Lectio",
+      creator: "Lectio Reader"
+    });
+    addRenderedPagesToPdf(pdf, canvas, exportDocument);
+    pdf.save(createLectioPdfFilename(state.article.title, exportedAt));
+    showReaderToast("Lectio PDF downloaded");
+  } catch (error) {
+    console.error("Lectio PDF export failed", error);
+    showReaderToast("Lectio could not create this PDF");
+  } finally {
+    exportStage.remove();
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.querySelector(".toolbar-label").textContent = "Download";
+  }
+}
+
+function addRenderedPagesToPdf(pdf, canvas, exportDocument) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const marginX = 34;
+  const marginY = 34;
+  const contentWidth = pageWidth - marginX * 2;
+  const contentHeight = pageHeight - marginY * 2;
+  const pageHeightPixels = Math.floor((contentHeight / contentWidth) * canvas.width);
+  const rootBounds = exportDocument.getBoundingClientRect();
+  const renderScale = canvas.width / rootBounds.width;
+  const breakpoints = collectPdfBreakpoints(exportDocument, rootBounds.top, renderScale);
+  const slices = createPdfPageSlices(canvas.height, pageHeightPixels, breakpoints);
+
+  slices.forEach((slice, index) => {
+    if (index > 0) pdf.addPage("a4", "portrait");
+    const sliceHeight = slice.end - slice.start;
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeight;
+    const context = pageCanvas.getContext("2d", { alpha: false });
+    context.fillStyle = "#fffefb";
+    context.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    context.drawImage(canvas, 0, slice.start, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+    const renderedHeight = (sliceHeight / canvas.width) * contentWidth;
+    pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.94), "JPEG", marginX, marginY, contentWidth, renderedHeight, undefined, "FAST");
+    pageCanvas.width = 1;
+    pageCanvas.height = 1;
+  });
+}
+
+function collectPdfBreakpoints(root, rootTop, renderScale) {
+  const candidates = root.querySelectorAll(
+    ".pdf-export-masthead, h1, h2, h3, h4, p, li, blockquote, pre, figure, table, .article-table-scroll, .code-card, .print-note"
+  );
+  return [...candidates]
+    .map((element) => (element.getBoundingClientRect().bottom - rootTop) * renderScale)
+    .filter((point) => point > 0);
+}
+
+function createPdfExportDocument(exportedAt) {
+  const sourceUrl = state.article.pageUrl || state.article.url || "";
+  const sourceHost = hostFor(sourceUrl);
+  const root = document.createElement("section");
+  root.className = "pdf-export-document";
+  root.setAttribute("aria-hidden", "true");
+  root.innerHTML = `
+    <header class="pdf-export-masthead">
+      <div class="pdf-export-register">
+        <div><span class="pdf-export-signature">Lectio</span><span class="pdf-export-edition">Reader edition</span></div>
+        <span class="pdf-export-date">${escapeHtml(formatLectioExportDate(exportedAt))}</span>
+      </div>
+      <h1>${escapeHtml(state.article.title || "Untitled article")}</h1>
+      <div class="pdf-export-source-line">
+        <span>${escapeHtml(state.article.byline || state.article.siteName || sourceHost)}</span>
+        ${sourceUrl ? `<a href="${escapeAttribute(sourceUrl)}">${escapeHtml(sourceHost || sourceUrl)}</a>` : ""}
+        <span>${articleWordCount().toLocaleString()} words</span>
+      </div>
+    </header>
+  `;
+
+  const article = document.querySelector("#article")?.cloneNode(true);
+  if (article) {
+    article.removeAttribute("tabindex");
+    cleanPdfExportArticle(article);
+    const firstHeading = article.querySelector("h1");
+    if (firstHeading && normalizeTocText(firstHeading.textContent) === normalizeTocText(state.article.title)) firstHeading.remove();
+    root.append(article);
+  }
+
+  const notes = document.querySelector("#print-notes")?.cloneNode(true);
+  if (notes?.textContent.trim()) {
+    notes.removeAttribute("aria-hidden");
+    notes.querySelector(".print-drawing-summary")?.remove();
+    root.append(notes);
+  }
+  return root;
+}
+
+function cleanPdfExportArticle(article) {
+  article.querySelectorAll("button, .comment-marker, .code-card-header, audio, video, iframe, form").forEach((element) => element.remove());
+  article.querySelectorAll(".search-hit").forEach((element) => element.replaceWith(document.createTextNode(element.textContent || "")));
+  article.querySelectorAll("[contenteditable], [tabindex], [aria-current]").forEach((element) => {
+    element.removeAttribute("contenteditable");
+    element.removeAttribute("tabindex");
+    element.removeAttribute("aria-current");
+  });
+}
+
+async function waitForExportImages(root) {
+  const images = [...root.querySelectorAll("img")];
+  if (!images.length) return;
+  const loadImages = Promise.allSettled(
+    images.map((image) => {
+      if (image.complete) return image.decode?.().catch(() => undefined);
+      return new Promise((resolve) => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", resolve, { once: true });
+      });
+    })
+  );
+  await Promise.race([loadImages, new Promise((resolve) => setTimeout(resolve, 5000))]);
 }
 
 function renderPrintNotes() {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeArticleHtml } from "../src/reader/dom.js";
+import { enhanceArticleTables, sanitizeArticleHtml } from "../src/reader/dom.js";
 
 function installDomShim() {
   class Node {
@@ -87,4 +87,47 @@ test("removes unwanted article asides from sanitized reader HTML", () => {
   assert.doesNotMatch(html, /plain hard/);
   assert.doesNotMatch(html, /Subscribe/);
   assert.doesNotMatch(html, /Type your email/);
+});
+
+test("wraps semantic tables in a labelled keyboard-scrollable region", () => {
+  const inserted = [];
+  const caption = { textContent: "Observed ORIGIN at direct peer" };
+  const parentNode = {
+    insertBefore(node, reference) {
+      inserted.push({ node, reference });
+    }
+  };
+  const table = {
+    parentNode,
+    querySelector(selector) {
+      return selector === "caption" ? caption : null;
+    },
+    closest() {
+      return null;
+    }
+  };
+  const articleRoot = { querySelectorAll: () => [table] };
+  global.document = {
+    createElement() {
+      return {
+        attributes: new Map(),
+        setAttribute(name, value) {
+          this.attributes.set(name, value);
+        },
+        append(child) {
+          this.child = child;
+        }
+      };
+    }
+  };
+
+  enhanceArticleTables(articleRoot);
+
+  const wrapper = inserted[0].node;
+  assert.equal(inserted[0].reference, table);
+  assert.equal(wrapper.className, "article-table-scroll");
+  assert.equal(wrapper.attributes.get("role"), "region");
+  assert.equal(wrapper.attributes.get("tabindex"), "0");
+  assert.equal(wrapper.attributes.get("aria-label"), "Observed ORIGIN at direct peer");
+  assert.equal(wrapper.child, table);
 });
