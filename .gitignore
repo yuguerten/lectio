@@ -12,3 +12,6 @@ data/
 
 # Keep the committed template safe for contributors.
 !.env.example
+.claude
+AGENTS.md
+CLAUDE.md

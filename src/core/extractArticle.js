@@ -1,11 +1,24 @@
 import { Readability } from "@mozilla/readability";
+import { isAccessBarrierText } from "./articleCandidate.js";
 import { deriveArticleIdentity, findCanonicalUrl } from "./urlIdentity.js";
+
+const ACCESS_BARRIER_SELECTOR = [
+  "dialog",
+  '[role="dialog"]',
+  '[aria-modal="true"]',
+  '[class*="adblock" i]',
+  '[id*="adblock" i]',
+  '[class*="modal" i]',
+  '[class*="overlay" i]',
+  '[class*="popup" i]'
+].join(",");
 
 export function extractArticleFromDocument(documentLike, pageUrl = documentLike.location?.href) {
   const canonicalUrl = findCanonicalUrl(documentLike);
   const articleId = deriveArticleIdentity({ pageUrl, canonicalUrl });
   const interactivePlots = detectInteractivePlots(documentLike);
   const clone = documentLike.cloneNode(true);
+  removeAccessBarrierElements(clone);
   const readable = new Readability(clone).parse();
 
   if (!readable?.content || !readable?.textContent?.trim()) {
@@ -24,6 +37,13 @@ export function extractArticleFromDocument(documentLike, pageUrl = documentLike.
     byline: readable.byline || "",
     siteName: readable.siteName || ""
   };
+}
+
+export function removeAccessBarrierElements(root) {
+  const candidates = root?.querySelectorAll?.(ACCESS_BARRIER_SELECTOR) || [];
+  for (const element of candidates) {
+    if (isAccessBarrierText(element.textContent)) element.remove();
+  }
 }
 
 export function normalizeExtractedText(text) {
