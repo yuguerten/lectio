@@ -51,6 +51,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "LECTIO_OPEN_LIBRARY") {
+    openLibraryTab()
+      .then((url) => sendResponse({ ok: true, url }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
   return false;
 });
 
@@ -58,6 +66,18 @@ async function openBookmarkedArticle(articleId) {
   const article = await bookmarkStore.load(articleId);
   if (!article) throw new Error("This bookmarked article is no longer available in browser storage.");
   return openReaderTab(article);
+}
+
+async function openLibraryTab() {
+  const libraryUrl = chrome.runtime.getURL("library.html");
+  const existingTabs = await chrome.tabs.query({ url: libraryUrl });
+  if (existingTabs[0]?.id) {
+    await chrome.tabs.update(existingTabs[0].id, { active: true });
+    if (existingTabs[0].windowId) await chrome.windows.update(existingTabs[0].windowId, { focused: true });
+    return libraryUrl;
+  }
+  await chrome.tabs.create({ url: libraryUrl });
+  return libraryUrl;
 }
 
 async function openReaderTab(article, openerTabId) {

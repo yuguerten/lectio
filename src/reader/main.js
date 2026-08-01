@@ -62,9 +62,11 @@ const state = {
   searchActiveIndex: 0,
   activeId: null,
   commentOpenId: null,
+  pendingSavedDeleteId: "",
   selectionAnchor: null,
   theme: "paper",
   focusMode: false,
+  readingProgress: 0,
   listening: false,
   listen: {
     model: LISTEN_MODEL,
@@ -139,6 +141,10 @@ async function boot() {
   state.annotations = annotations;
   state.drawings = drawings;
   state.bookmarks = bookmarks;
+  if (isCurrentArticleBookmarked()) {
+    await bookmarkStore.markOpened(state.article.id);
+    state.bookmarks = await bookmarkStore.list();
+  }
   renderWorkspace();
 }
 
@@ -150,7 +156,6 @@ async function loadArticleFromSession() {
   const result = await chrome.storage.session.get(key);
   const article = result[key];
   if (!article) throw new Error("The reader session expired. Reopen the article from the extension button.");
-  await chrome.storage.session.remove(key);
   return article;
 }
 
@@ -223,8 +228,9 @@ function renderWorkspace() {
           <p id="smart-outline-status" class="toc-status" role="status" aria-live="polite"></p>
         </div>
         <details class="saved-panel" aria-label="Bookmarked articles">
-          <summary><span>[ ARCHIVE ]</span><small>Local files</small></summary>
+          <summary><span>Reading library</span><small>Saved locally</small></summary>
           <div id="saved-article-list" class="saved-article-list"></div>
+          <button id="library-open" class="saved-library-open" type="button">${listIcon()}<span>Open full library</span></button>
         </details>
       </aside>
 
@@ -335,6 +341,7 @@ function renderWorkspace() {
   document.querySelector("#highlight-tool")?.addEventListener("click", handleHighlightTool);
   document.querySelector("#bookmark-tool")?.addEventListener("click", handleBookmarkArticle);
   document.querySelector("#bookmark-top").addEventListener("click", handleBookmarkArticle);
+  document.querySelector("#library-open")?.addEventListener("click", openReadingLibrary);
   bindTypographyControls();
   renderListenPopover();
   applyReaderPreferences();
@@ -370,12 +377,22 @@ function renderWorkspace() {
 async function handleBookmarkArticle() {
   try {
     await bookmarkStore.save(state.article);
+    await bookmarkStore.saveProgress(state.article.id, state.readingProgress);
     state.bookmarks = await bookmarkStore.list();
     updateBookmarkButton();
     renderSavedArticles();
     showReaderToast("Article saved locally in this browser");
   } catch (error) {
     showReaderToast(error.message || "Lectio could not save this article");
+  }
+}
+
+async function openReadingLibrary() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "LECTIO_OPEN_LIBRARY" });
+    if (response?.ok === false) throw new Error(response.error || "Lectio could not open your library.");
+  } catch (error) {
+    showReaderToast(error.message || "Lectio could not open your library");
   }
 }
 
@@ -727,7 +744,7 @@ function renderTableOfContents() {
 function renderSavedArticles() {
   const list = document.querySelector("#saved-article-list");
   if (!list) return;
-  const bookmarks = state.bookmarks.slice(0, 8);
+  const bookmarks = state.bookmarks.filter((bookmark) => !bookmark.archived).slice(0, 8);
   if (!bookmarks.length) {
     list.innerHTML = `<p class="saved-empty">Click Bookmark or press B to keep articles here locally.</p>`;
     return;
@@ -735,15 +752,47 @@ function renderSavedArticles() {
 
   list.innerHTML = bookmarks
     .map((bookmark) => `
-      <button class="saved-article-link ${bookmark.id === state.article.id ? "is-current" : ""}" type="button" data-article-id="${escapeAttribute(bookmark.id)}" title="${escapeAttribute(bookmark.title)}">
-        <span>${escapeHtml(bookmark.title)}</span>
-        <small>${escapeHtml(bookmark.siteName || hostFor(bookmark.pageUrl))}${savedAtLabel(bookmark.savedAt)}</small>
-      </button>
+      <div class="saved-article-row">
+        <button class="saved-article-link ${bookmark.id === state.article.id ? "is-current" : ""}" type="button" data-article-id="${escapeAttribute(bookmark.id)}" title="${escapeAttribute(bookmark.title)}">
+          <span>${escapeHtml(bookmark.title)}</span>
+          <small>${escapeHtml(bookmark.siteName || hostFor(bookmark.pageUrl))}${savedAtLabel(bookmark.savedAt)}</small>
+        </button>
+        <button class="saved-article-delete ${state.pendingSavedDeleteId === bookmark.id ? "is-confirming" : ""}" type="button" data-saved-delete="${escapeAttribute(bookmark.id)}" aria-label="${state.pendingSavedDeleteId === bookmark.id ? "Confirm removing" : "Remove"} ${escapeAttribute(bookmark.title)} from library" title="${state.pendingSavedDeleteId === bookmark.id ? "Click again to confirm" : "Remove from library"}">
+          ${state.pendingSavedDeleteId === bookmark.id ? checkCircleIcon() : trashIcon()}
+        </button>
+      </div>
     `)
     .join("");
   list.querySelectorAll("[data-article-id]").forEach((button) => {
     button.addEventListener("click", () => openSavedArticle(button.dataset.articleId));
   });
+  list.querySelectorAll("[data-saved-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteSavedArticle(button.dataset.savedDelete));
+  });
+}
+
+async function deleteSavedArticle(articleId) {
+  if (state.pendingSavedDeleteId !== articleId) {
+    state.pendingSavedDeleteId = articleId;
+    renderSavedArticles();
+    clearTimeout(deleteSavedArticle.timeout);
+    deleteSavedArticle.timeout = setTimeout(() => {
+      state.pendingSavedDeleteId = "";
+      renderSavedArticles();
+    }, 4000);
+    return;
+  }
+  try {
+    clearTimeout(deleteSavedArticle.timeout);
+    await bookmarkStore.delete(articleId);
+    state.pendingSavedDeleteId = "";
+    state.bookmarks = await bookmarkStore.list();
+    updateBookmarkButton();
+    renderSavedArticles();
+    showReaderToast("Article removed from your reading library");
+  } catch (error) {
+    showReaderToast(error.message || "Lectio could not remove this article");
+  }
 }
 
 async function openSavedArticle(articleId) {
@@ -797,19 +846,35 @@ function updateReadingProgress() {
   const end = Math.max(start + 1, shell.offsetTop + shell.scrollHeight - window.innerHeight + 120);
   const progress = clamp((scrollTop - start) / (end - start), 0, 1);
   const percent = Math.round(progress * 100);
+  state.readingProgress = percent;
   document.querySelector("#top-progress-bar")?.style.setProperty("width", `${percent}%`);
-  let activeIndex = 0;
-  visibleTocItems().forEach((item, index) => {
   const progressLabel = document.querySelector("#reader-progress");
   if (progressLabel) progressLabel.textContent = `${String(percent).padStart(3, "0")}%`;
+  let activeIndex = 0;
+  visibleTocItems().forEach((item, index) => {
     const heading = document.getElementById(item.id);
     if (heading && heading.getBoundingClientRect().top <= 150) activeIndex = index;
   });
   document.querySelectorAll(".toc-link").forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
-}
-
   const activeSection = document.querySelector("#active-section-index");
   if (activeSection) activeSection.textContent = String(activeIndex + 1).padStart(2, "0");
+  scheduleLibraryProgressSave(percent);
+}
+
+function scheduleLibraryProgressSave(percent) {
+  if (!isCurrentArticleBookmarked() || percent === scheduleLibraryProgressSave.lastProgress) return;
+  clearTimeout(scheduleLibraryProgressSave.timeout);
+  scheduleLibraryProgressSave.timeout = setTimeout(async () => {
+    try {
+      const updated = await bookmarkStore.saveProgress(state.article.id, percent);
+      if (!updated) return;
+      scheduleLibraryProgressSave.lastProgress = percent;
+      state.bookmarks = state.bookmarks.map((bookmark) => (bookmark.id === updated.id ? updated : bookmark));
+    } catch (error) {
+      console.warn("Lectio could not save reading progress", error);
+    }
+  }, 600);
+}
 
 function openTypographyPopover() {
   closeSearchPopover();

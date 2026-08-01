@@ -75,3 +75,24 @@ test("saves, lists, loads, and deletes bookmarked articles through an adapter", 
   assert.deepEqual(await store.list(), []);
   assert.equal(await store.load(article.id), null);
 });
+
+test("updates library organization and reading state without losing the saved article", async () => {
+  const adapter = createMemoryStorageAdapter();
+  const store = createBookmarkStore(adapter);
+  await store.save({ id: "article-2", title: "A useful paper", html: "<p>Body</p>" });
+
+  const organized = await store.update("article-2", {
+    folder: "Research",
+    tags: "Networks, BGP, networks",
+    archived: true
+  });
+  assert.equal(organized.folder, "Research");
+  assert.deepEqual(organized.tags, ["Networks", "BGP"]);
+  assert.equal(organized.archived, true);
+
+  await store.update("article-2", { archived: false });
+  const reading = await store.saveProgress("article-2", 48, "2026-02-01T12:00:00.000Z");
+  assert.equal(reading.progress, 48);
+  assert.equal(reading.status, "reading");
+  assert.equal((await store.load("article-2")).html, "<p>Body</p>");
+});

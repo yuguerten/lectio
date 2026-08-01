@@ -1,3 +1,5 @@
+import { applyReadingProgress, normalizeFolder, normalizeLibraryEntry, normalizeLibraryTags } from "./library.js";
+
 export function createAnnotationStore(adapter) {
   return {
     async load(articleId) {
@@ -88,7 +90,7 @@ export function createBookmarkStore(adapter) {
   return {
     async list() {
       const value = await adapter.get(bookmarkIndexKey());
-      return Array.isArray(value?.bookmarks) ? value.bookmarks : [];
+      return Array.isArray(value?.bookmarks) ? value.bookmarks.map(normalizeLibraryEntry) : [];
     },
 
     async load(articleId) {
@@ -100,7 +102,10 @@ export function createBookmarkStore(adapter) {
       if (!article?.id) throw new Error("Cannot bookmark an article without an id.");
 
       const savedAt = new Date().toISOString();
-      const bookmark = {
+      const bookmarks = await this.list();
+      const existing = bookmarks.find((item) => item.id === article.id);
+      const bookmark = normalizeLibraryEntry({
+        ...existing,
         id: article.id,
         title: article.title || "Untitled article",
         url: article.url || article.id,
@@ -109,9 +114,9 @@ export function createBookmarkStore(adapter) {
         excerpt: article.excerpt || "",
         byline: article.byline || "",
         siteName: article.siteName || "",
-        savedAt
-      };
-      const bookmarks = await this.list();
+        savedAt: existing?.savedAt || savedAt,
+        lastOpenedAt: savedAt
+      });
       const nextBookmarks = [bookmark, ...bookmarks.filter((item) => item.id !== article.id)];
 
       await Promise.all([
@@ -120,6 +125,37 @@ export function createBookmarkStore(adapter) {
       ]);
 
       return bookmark;
+    },
+
+    async update(articleId, patch = {}) {
+      const bookmarks = await this.list();
+      const current = bookmarks.find((item) => item.id === articleId);
+      if (!current) throw new Error("Saved article not found.");
+      const cleanPatch = { ...patch };
+      if ("tags" in cleanPatch) cleanPatch.tags = normalizeLibraryTags(cleanPatch.tags);
+      if ("folder" in cleanPatch) cleanPatch.folder = normalizeFolder(cleanPatch.folder);
+      if ("archived" in cleanPatch) cleanPatch.archived = Boolean(cleanPatch.archived);
+      if ("status" in cleanPatch && !["unread", "reading", "completed"].includes(cleanPatch.status)) delete cleanPatch.status;
+      const updated = normalizeLibraryEntry({ ...current, ...cleanPatch });
+      await adapter.set(bookmarkIndexKey(), {
+        bookmarks: bookmarks.map((item) => (item.id === articleId ? updated : item))
+      });
+      return updated;
+    },
+
+    async markOpened(articleId, openedAt = new Date().toISOString()) {
+      return this.update(articleId, { lastOpenedAt: openedAt });
+    },
+
+    async saveProgress(articleId, progress, readAt = new Date().toISOString()) {
+      const bookmarks = await this.list();
+      const current = bookmarks.find((item) => item.id === articleId);
+      if (!current) return null;
+      const updated = applyReadingProgress(current, progress, readAt);
+      await adapter.set(bookmarkIndexKey(), {
+        bookmarks: bookmarks.map((item) => (item.id === articleId ? updated : item))
+      });
+      return updated;
     },
 
     async delete(articleId) {

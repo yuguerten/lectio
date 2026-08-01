@@ -11,6 +11,7 @@ export default defineConfig({
         terms: "terms.html",
         background: "src/extension/background.js",
         "content-script": "src/extension/content-script.js",
+        library: "library.html",
         reader: "reader.html"
       },
       output: {

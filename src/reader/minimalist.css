@@ -383,6 +383,24 @@ body,
   background: transparent;
 }
 
+.saved-article-row {
+  gap: 2px;
+  border-bottom: 1px solid var(--reader-rule-soft);
+}
+
+.saved-article-delete {
+  min-height: 44px;
+  border: 0;
+  border-radius: 3px;
+}
+
+.saved-library-open {
+  width: calc(100% - 20px);
+  margin: 4px 10px 10px;
+  border-color: var(--reader-rule);
+  border-radius: 5px;
+}
+
 /* Reading plane. */
 .study-layout {
   min-height: calc(100vh - var(--press-appbar-height));
