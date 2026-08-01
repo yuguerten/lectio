@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectInteractivePlots } from "../src/core/extractArticle.js";
+import { detectInteractivePlots, removeAccessBarrierElements } from "../src/core/extractArticle.js";
+
+test("removes anti-adblock dialogs from the extraction clone only", () => {
+  const removed = [];
+  const warning = { textContent: "Please disable your ad blocker to continue reading.", remove: () => removed.push("warning") };
+  const ordinaryDialog = { textContent: "Choose a newsletter topic.", remove: () => removed.push("ordinary") };
+  const root = { querySelectorAll: () => [warning, ordinaryDialog] };
+
+  removeAccessBarrierElements(root);
+
+  assert.deepEqual(removed, ["warning"]);
+});
 
 test("detects Plotly containers with nearby captions", () => {
   const plot = createNode({ id: "frontier-gap", classNames: ["js-plotly-plot"] });
