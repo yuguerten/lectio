@@ -109,6 +109,80 @@ export function getLibraryStats(entries) {
   };
 }
 
+export function buildInterestGraph(entries) {
+  const active = (entries || []).map(normalizeLibraryEntry).filter((entry) => !entry.archived);
+  const folderRecords = new Map();
+  const topicRecords = new Map();
+  const connections = new Map();
+
+  for (const entry of active) {
+    const folderLabel = entry.folder || "Unfiled";
+    const folderKey = normalizeSearch(folderLabel);
+    const folder = folderRecords.get(folderKey) || { key: folderKey, label: folderLabel, articleIds: [] };
+    folder.articleIds.push(entry.id);
+    folderRecords.set(folderKey, folder);
+
+    for (const topicLabel of entry.tags) {
+      const topicKey = normalizeTopic(topicLabel);
+      if (!topicKey) continue;
+      const topic = topicRecords.get(topicKey) || { key: topicKey, label: topicLabel, articleIds: [] };
+      topic.articleIds.push(entry.id);
+      topicRecords.set(topicKey, topic);
+      const connectionKey = `${folderKey}\u0000${topicKey}`;
+      connections.set(connectionKey, (connections.get(connectionKey) || 0) + 1);
+    }
+  }
+
+  const byWeightThenLabel = (left, right) =>
+    right.articleIds.length - left.articleIds.length ||
+    left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
+  const folders = [...folderRecords.values()].sort(byWeightThenLabel).map((folder) => ({
+    id: `folder:${encodeURIComponent(folder.key)}`,
+    type: "folder",
+    label: folder.label,
+    count: folder.articleIds.length,
+    articleIds: folder.articleIds
+  }));
+  const topics = [...topicRecords.values()].sort(byWeightThenLabel).map((topic) => ({
+    id: `topic:${encodeURIComponent(topic.key)}`,
+    type: "topic",
+    label: topic.label,
+    count: topic.articleIds.length,
+    articleIds: topic.articleIds
+  }));
+  const folderIds = new Map(folders.map((folder) => [normalizeSearch(folder.label), folder.id]));
+  const topicIds = new Map(topics.map((topic) => [normalizeTopic(topic.label), topic.id]));
+  const edges = folders.map((folder) => ({
+    source: "library",
+    target: folder.id,
+    type: "folder",
+    count: folder.count
+  }));
+
+  for (const [key, count] of connections) {
+    const [folderKey, topicKey] = key.split("\u0000");
+    edges.push({
+      source: folderIds.get(folderKey),
+      target: topicIds.get(topicKey),
+      type: "topic",
+      count
+    });
+  }
+
+  return {
+    root: {
+      id: "library",
+      type: "root",
+      label: "Library",
+      count: active.length,
+      articleIds: active.map((entry) => entry.id)
+    },
+    folders,
+    topics,
+    edges
+  };
+}
+
 function searchableText(entry) {
   return normalizeSearch(
     [entry.title, entry.byline, entry.siteName, entry.excerpt, entry.folder, ...(entry.tags || [])].filter(Boolean).join(" ")

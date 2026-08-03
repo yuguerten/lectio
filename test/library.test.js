@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   applyReadingProgress,
+  buildInterestGraph,
   filterLibraryEntries,
   getLibraryFolders,
   getLibraryStats,
@@ -77,4 +78,39 @@ test("reports folders and state counts", () => {
     { label: "Research", count: 1 }
   ]);
   assert.deepEqual(getLibraryStats(entries), { all: 2, recent: 2, unread: 1, completed: 1, archived: 1 });
+});
+
+test("builds a folder and topic interest graph from active articles", () => {
+  const graph = buildInterestGraph([
+    ...entries,
+    {
+      id: "d",
+      title: "Route policy",
+      folder: "Work",
+      tags: ["BGP", "Policy"],
+      savedAt: "2026-01-05T00:00:00.000Z"
+    },
+    {
+      id: "e",
+      title: "Loose note",
+      tags: ["Ideas"],
+      savedAt: "2026-01-06T00:00:00.000Z"
+    }
+  ]);
+
+  assert.equal(graph.root.count, 4);
+  assert.deepEqual(graph.folders.map(({ label, count }) => ({ label, count })), [
+    { label: "Work", count: 2 },
+    { label: "Ideas", count: 1 },
+    { label: "Unfiled", count: 1 }
+  ]);
+  assert.deepEqual(graph.topics.map(({ label, count }) => ({ label, count })), [
+    { label: "BGP", count: 2 },
+    { label: "Ideas", count: 1 },
+    { label: "Networks", count: 1 },
+    { label: "Policy", count: 1 },
+    { label: "Research", count: 1 }
+  ]);
+  assert.equal(graph.edges.filter((edge) => edge.type === "folder").length, 3);
+  assert.equal(graph.edges.find((edge) => edge.type === "topic" && edge.count === 2)?.count, 2);
 });

@@ -1,6 +1,7 @@
 import "../shared/palette.css";
 import "./styles.css";
-import { filterLibraryEntries, getLibraryFolders, getLibraryStats, getLibraryTopics } from "../core/library.js";
+import { buildInterestGraph, filterLibraryEntries, getLibraryFolders, getLibraryStats, getLibraryTopics } from "../core/library.js";
+import { createInterestLayout } from "../core/interestGraphLayout.js";
 import { createBookmarkStore, createChromeStorageAdapter } from "../core/localPersistence.js";
 
 const VIEW_LABELS = {
@@ -13,12 +14,15 @@ const VIEW_LABELS = {
 
 const app = document.querySelector("#app");
 const store = createBookmarkStore(createChromeStorageAdapter());
+let activeInterestMap = null;
 const state = {
   entries: [],
   query: "",
   view: "all",
   folder: "",
   topic: "",
+  layout: "list",
+  mapSelectionId: "",
   pendingDeleteId: ""
 };
 
@@ -77,7 +81,13 @@ function renderShell() {
                 <p id="catalog-index" class="catalog-index"></p>
                 <h2 id="catalog-title">All articles</h2>
               </div>
-              <button id="clear-library-filters" class="quiet-button" type="button">Clear filters</button>
+              <div class="catalog-actions">
+                <div id="library-layout" class="layout-switch" role="group" aria-label="Library layout">
+                  <button type="button" data-layout="list" aria-pressed="true">${listIcon()}<span>List</span></button>
+                  <button type="button" data-layout="map" aria-pressed="false">${graphIcon()}<span>Interest map</span></button>
+                </div>
+                <button id="clear-library-filters" class="quiet-button" type="button">Clear filters</button>
+              </div>
             </header>
             <div id="library-list" class="library-list" aria-live="polite"></div>
           </section>
@@ -127,10 +137,22 @@ function bindShell() {
     search.value = "";
     renderLibrary();
   });
+  document.querySelector("#library-layout").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-layout]");
+    if (!button || button.dataset.layout === state.layout) return;
+    state.layout = button.dataset.layout;
+    state.mapSelectionId = "";
+    renderCatalog();
+  });
   document.querySelector("#library-list").addEventListener("click", handleCatalogClick);
   document.querySelector("#library-list").addEventListener("change", handleCatalogChange);
   document.querySelector("#library-list").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && event.target.matches("[data-folder], [data-topics]")) event.target.blur();
+    const mapNode = event.target.closest("[data-interest-node]");
+    if (mapNode && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      selectInterestNode(mapNode.dataset.interestNode);
+    }
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "/" && !isTypingTarget(event.target)) {
@@ -198,17 +220,321 @@ function renderFolders() {
 
 function renderCatalog() {
   const entries = visibleEntries();
-  const title = state.topic ? `Topic: ${state.topic}` : state.folder || VIEW_LABELS[state.view];
-  document.querySelector("#catalog-title").textContent = title;
-  document.querySelector("#catalog-index").textContent = `${String(entries.length).padStart(2, "0")} ${entries.length === 1 ? "entry" : "entries"}`;
+  activeInterestMap = null;
+  renderLayoutControls();
   document.querySelector("#clear-library-filters").hidden = !state.query && state.view === "all" && !state.folder && !state.topic;
   const list = document.querySelector("#library-list");
   if (!entries.length) {
+    document.querySelector("#catalog-title").textContent = state.layout === "map" ? "Interest map" : state.topic ? `Topic: ${state.topic}` : state.folder || VIEW_LABELS[state.view];
+    document.querySelector("#catalog-index").textContent = "00 entries";
     list.innerHTML = emptyLibraryTemplate();
     return;
   }
+  if (state.layout === "map") {
+    const graph = buildInterestGraph(entries);
+    const layout = createInterestLayout(graph);
+    document.querySelector("#catalog-title").textContent = "Interest map";
+    document.querySelector("#catalog-index").textContent = `${String(graph.folders.length).padStart(2, "0")} folders · ${String(graph.topics.length).padStart(2, "0")} topics`;
+    list.innerHTML = interestMapTemplate(graph, entries, layout);
+    mountInterestMap(graph, entries, layout);
+    return;
+  }
+  const title = state.topic ? `Topic: ${state.topic}` : state.folder || VIEW_LABELS[state.view];
+  document.querySelector("#catalog-title").textContent = title;
+  document.querySelector("#catalog-index").textContent = `${String(entries.length).padStart(2, "0")} ${entries.length === 1 ? "entry" : "entries"}`;
   const folders = getLibraryFolders(state.entries);
   list.innerHTML = `${entries.map(entryTemplate).join("")}<datalist id="folder-options">${folders.map((folder) => `<option value="${escapeAttribute(folder)}"></option>`).join("")}</datalist>`;
+}
+
+function renderLayoutControls() {
+  document.querySelectorAll("[data-layout]").forEach((button) => {
+    const active = button.dataset.layout === state.layout;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function interestMapTemplate(graph, entries, layout) {
+  const selected = layout.nodes.find((node) => node.id === state.mapSelectionId) || overviewSelection(entries);
+  return `
+    <div class="interest-map">
+      <section class="interest-map-stage" aria-label="Interactive folder and topic graph">
+        <div class="interest-map-toolbar">
+          <div class="interest-map-legend" aria-label="Map legend">
+            <span><i class="is-folder"></i>Folders</span>
+            <span><i class="is-topic"></i>Topics</span>
+          </div>
+          <div class="interest-map-controls" aria-label="Map controls">
+            <button type="button" data-map-zoom="out" aria-label="Zoom out" title="Zoom out">${minusIcon()}</button>
+            <button type="button" data-map-zoom="fit" aria-label="Fit graph" title="Fit graph">${fitIcon()}</button>
+            <button type="button" data-map-zoom="in" aria-label="Zoom in" title="Zoom in">${plusIcon()}</button>
+          </div>
+        </div>
+        <svg class="interest-map-canvas" viewBox="0 0 760 600" role="img" aria-label="Folders connected to their saved article topics">
+          <g class="interest-map-viewport">
+            <g class="interest-map-edges" aria-hidden="true">
+              ${layout.edges.map((edge, index) => {
+                const source = layout.positions.get(edge.source);
+                const target = layout.positions.get(edge.target);
+                return `<path class="is-topic" data-edge-index="${index}" data-source="${escapeAttribute(edge.source)}" data-target="${escapeAttribute(edge.target)}" d="${edgePath(source, target, index)}" />`;
+              }).join("")}
+            </g>
+            <g class="interest-map-nodes">
+              ${layout.nodes.map((node) => {
+                const point = layout.positions.get(node.id);
+                return `
+                  <g class="interest-node is-${node.type}"
+                    transform="translate(${point.x} ${point.y})"
+                    role="button"
+                    tabindex="0"
+                    data-interest-node="${escapeAttribute(node.id)}"
+                    aria-label="${escapeAttribute(`${node.type} ${node.label}, ${node.count} ${node.count === 1 ? "article" : "articles"}`)}">
+                    <circle r="${node.radius}" />
+                    <text class="interest-node-count" text-anchor="middle" dominant-baseline="central">${node.count}</text>
+                    <text class="interest-node-label" y="${node.radius + 17}" text-anchor="middle">${escapeHtml(shortText(node.label, node.type === "topic" ? 16 : 20))}</text>
+                  </g>
+                `;
+              }).join("")}
+            </g>
+          </g>
+        </svg>
+        ${layout.omitted ? `<p class="interest-map-omitted">Showing ${layout.nodes.length} strongest nodes · ${layout.omitted} more remain available in the filters.</p>` : ""}
+      </section>
+      <aside id="interest-inspector" class="interest-inspector" aria-live="polite">${interestInspectorTemplate(selected, entries)}</aside>
+    </div>
+  `;
+}
+
+function interestInspectorTemplate(selected, entries) {
+  const selectedIds = new Set(selected.articleIds);
+  const selectedArticles = entries.filter((entry) => selectedIds.has(entry.id));
+  const articleLimit = selected.type === "overview" ? 6 : 10;
+  const selectedTopics = getLibraryTopics(selectedArticles).slice(0, 6);
+  return `
+    <p class="inspector-kind">${selected.type === "overview" ? "Library" : selected.type}</p>
+    <h3>${escapeHtml(selected.label)}</h3>
+    <p class="inspector-count">${selected.count} saved ${selected.count === 1 ? "article" : "articles"}</p>
+    ${selectedTopics.length ? `
+      <div class="inspector-topics" aria-label="Related topics">
+        ${selectedTopics.map((topic) => `<span>${escapeHtml(topic.label)} <b>${topic.count}</b></span>`).join("")}
+      </div>
+    ` : ""}
+    <ol class="interest-article-list">
+      ${selectedArticles.slice(0, articleLimit).map((entry) => `
+        <li data-entry-id="${escapeAttribute(entry.id)}">
+          <button type="button" data-open="${escapeAttribute(entry.id)}">${escapeHtml(entry.title || "Untitled article")}</button>
+          <p><span>${escapeHtml(entry.siteName || hostFor(entry.pageUrl || entry.url) || "Saved article")}</span><small>${statusLabelFor(entry.status)} · ${entry.progress}%</small></p>
+        </li>
+      `).join("")}
+    </ol>
+    ${selectedArticles.length > articleLimit ? `<p class="inspector-more">+${selectedArticles.length - articleLimit} more in this selection</p>` : ""}
+  `;
+}
+
+function overviewSelection(entries) {
+  return {
+    id: "",
+    type: "overview",
+    label: "All articles",
+    count: entries.length,
+    articleIds: entries.map((entry) => entry.id)
+  };
+}
+
+function mountInterestMap(graph, entries, layout) {
+  const root = document.querySelector(".interest-map");
+  const svg = root?.querySelector(".interest-map-canvas");
+  const viewport = root?.querySelector(".interest-map-viewport");
+  if (!root || !svg || !viewport) return;
+
+  activeInterestMap = {
+    graph,
+    entries,
+    layout,
+    root,
+    svg,
+    viewport,
+    transform: { x: 0, y: 0, scale: 1 },
+    suppressClick: false
+  };
+
+  root.querySelectorAll("[data-interest-node]").forEach((node) => {
+    node.addEventListener("pointerdown", beginInterestNodeDrag);
+  });
+  root.querySelectorAll("[data-map-zoom]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.mapZoom === "fit") resetInterestMapView();
+      else zoomInterestMap(button.dataset.mapZoom === "in" ? 1.2 : 1 / 1.2);
+    });
+  });
+  svg.addEventListener("wheel", handleInterestMapWheel, { passive: false });
+  svg.addEventListener("pointerdown", beginInterestMapPan);
+  selectInterestNode(layout.nodes.some((node) => node.id === state.mapSelectionId) ? state.mapSelectionId : "");
+}
+
+function selectInterestNode(nodeId) {
+  const map = activeInterestMap;
+  if (!map) return;
+  const selected = map.layout.nodes.find((node) => node.id === nodeId) || overviewSelection(map.entries);
+  state.mapSelectionId = selected.id;
+  const inspector = map.root.querySelector("#interest-inspector");
+  if (inspector) inspector.innerHTML = interestInspectorTemplate(selected, map.entries);
+
+  const related = new Set([selected.id]);
+  if (selected.id) {
+    map.layout.edges
+      .filter((edge) => edge.source === selected.id || edge.target === selected.id)
+      .forEach((edge) => {
+        related.add(edge.source);
+        related.add(edge.target);
+      });
+  }
+
+  map.root.querySelectorAll("[data-interest-node]").forEach((element) => {
+    const id = element.dataset.interestNode;
+    element.classList.toggle("is-selected", id === selected.id);
+    element.classList.toggle("is-dimmed", Boolean(selected.id) && !related.has(id));
+  });
+  map.root.querySelectorAll("[data-source][data-target]").forEach((edge) => {
+    const active = Boolean(selected.id) && (edge.dataset.source === selected.id || edge.dataset.target === selected.id);
+    edge.classList.toggle("is-active", active);
+  });
+}
+
+function beginInterestNodeDrag(event) {
+  if (event.button !== 0 || !activeInterestMap) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const map = activeInterestMap;
+  const nodeId = event.currentTarget.dataset.interestNode;
+  const node = map.layout.nodes.find((item) => item.id === nodeId);
+  const point = map.layout.positions.get(nodeId);
+  if (!node || !point) return;
+  const start = { x: event.clientX, y: event.clientY };
+  let moved = false;
+  event.currentTarget.classList.add("is-dragging");
+  map.svg.setPointerCapture(event.pointerId);
+
+  const move = (moveEvent) => {
+    if (Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) > 3) moved = true;
+    const next = screenPointInElement(map.viewport, moveEvent);
+    if (!next) return;
+    point.x = Math.min(map.layout.width - node.radius - 20, Math.max(node.radius + 20, next.x));
+    point.y = Math.min(map.layout.height - node.radius - 24, Math.max(node.radius + 20, next.y));
+    updateInterestMapGeometry();
+  };
+  const end = () => {
+    event.currentTarget.classList.remove("is-dragging");
+    map.svg.removeEventListener("pointermove", move);
+    map.svg.removeEventListener("pointerup", end);
+    map.svg.removeEventListener("pointercancel", end);
+    if (moved) {
+      map.suppressClick = true;
+      setTimeout(() => {
+        if (activeInterestMap === map) map.suppressClick = false;
+      }, 0);
+    }
+  };
+  map.svg.addEventListener("pointermove", move);
+  map.svg.addEventListener("pointerup", end);
+  map.svg.addEventListener("pointercancel", end);
+}
+
+function beginInterestMapPan(event) {
+  const map = activeInterestMap;
+  if (!map || event.button !== 0 || event.target.closest("[data-interest-node]")) return;
+  event.preventDefault();
+  const start = { clientX: event.clientX, clientY: event.clientY, x: map.transform.x, y: map.transform.y };
+  const bounds = map.svg.getBoundingClientRect();
+  let moved = false;
+  map.svg.classList.add("is-panning");
+  map.svg.setPointerCapture(event.pointerId);
+
+  const move = (moveEvent) => {
+    const dx = (moveEvent.clientX - start.clientX) * (map.layout.width / Math.max(1, bounds.width));
+    const dy = (moveEvent.clientY - start.clientY) * (map.layout.height / Math.max(1, bounds.height));
+    if (Math.hypot(dx, dy) > 2) moved = true;
+    map.transform.x = start.x + dx;
+    map.transform.y = start.y + dy;
+    applyInterestMapTransform();
+  };
+  const end = () => {
+    map.svg.classList.remove("is-panning");
+    map.svg.removeEventListener("pointermove", move);
+    map.svg.removeEventListener("pointerup", end);
+    map.svg.removeEventListener("pointercancel", end);
+    if (!moved) selectInterestNode("");
+  };
+  map.svg.addEventListener("pointermove", move);
+  map.svg.addEventListener("pointerup", end);
+  map.svg.addEventListener("pointercancel", end);
+}
+
+function handleInterestMapWheel(event) {
+  if (!activeInterestMap) return;
+  event.preventDefault();
+  const anchor = screenPointInElement(activeInterestMap.svg, event) || { x: 380, y: 300 };
+  zoomInterestMap(event.deltaY < 0 ? 1.12 : 1 / 1.12, anchor);
+}
+
+function zoomInterestMap(factor, anchor = { x: 380, y: 300 }) {
+  const map = activeInterestMap;
+  if (!map) return;
+  const previous = map.transform.scale;
+  const next = Math.min(2.4, Math.max(0.65, previous * factor));
+  map.transform.x = anchor.x - (anchor.x - map.transform.x) * (next / previous);
+  map.transform.y = anchor.y - (anchor.y - map.transform.y) * (next / previous);
+  map.transform.scale = next;
+  applyInterestMapTransform();
+}
+
+function resetInterestMapView() {
+  if (!activeInterestMap) return;
+  activeInterestMap.transform = { x: 0, y: 0, scale: 1 };
+  applyInterestMapTransform();
+}
+
+function applyInterestMapTransform() {
+  const map = activeInterestMap;
+  if (!map) return;
+  const { x, y, scale } = map.transform;
+  map.viewport.setAttribute("transform", `translate(${x} ${y}) scale(${scale})`);
+}
+
+function updateInterestMapGeometry() {
+  const map = activeInterestMap;
+  if (!map) return;
+  map.root.querySelectorAll("[data-interest-node]").forEach((element) => {
+    const point = map.layout.positions.get(element.dataset.interestNode);
+    if (point) element.setAttribute("transform", `translate(${point.x} ${point.y})`);
+  });
+  map.root.querySelectorAll("[data-edge-index]").forEach((element) => {
+    const source = map.layout.positions.get(element.dataset.source);
+    const target = map.layout.positions.get(element.dataset.target);
+    if (source && target) element.setAttribute("d", edgePath(source, target, Number(element.dataset.edgeIndex)));
+  });
+}
+
+function screenPointInElement(element, event) {
+  const matrix = element?.getScreenCTM?.();
+  const svg = element?.ownerSVGElement || element;
+  if (!matrix || !svg?.createSVGPoint) return null;
+  const point = svg.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  return point.matrixTransform(matrix.inverse());
+}
+
+function edgePath(source, target, index) {
+  const midpointX = (source.x + target.x) / 2;
+  const midpointY = (source.y + target.y) / 2;
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const bend = ((index % 5) - 2) * 5;
+  const controlX = midpointX - (dy / length) * bend;
+  const controlY = midpointY + (dx / length) * bend;
+  return `M ${source.x} ${source.y} Q ${controlX} ${controlY} ${target.x} ${target.y}`;
 }
 
 function entryTemplate(entry, index) {
@@ -270,6 +596,11 @@ async function handleCatalogClick(event) {
     state.topic = "";
     document.querySelector("#library-search").value = "";
     renderLibrary();
+    return;
+  }
+  const mapNode = event.target.closest("[data-interest-node]");
+  if (mapNode) {
+    if (!activeInterestMap?.suppressClick) selectInterestNode(mapNode.dataset.interestNode);
     return;
   }
   const entryRoot = event.target.closest("[data-entry-id]");
@@ -431,3 +762,8 @@ function archiveIcon() { return icon('<path d="M4 7h16v13H4zM3 4h18v3H3zM9 11h6"
 function restoreIcon() { return icon('<path d="M4 7h16v13H4zM3 4h18v3H3z"/><path d="m9 14 3-3 3 3M12 11v6"/>'); }
 function trashIcon() { return icon('<path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/>'); }
 function arrowIcon() { return icon('<path d="M5 12h14m-5-5 5 5-5 5"/>'); }
+function listIcon() { return icon('<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r=".8" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r=".8" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r=".8" fill="currentColor" stroke="none"/>'); }
+function graphIcon() { return icon('<circle cx="6" cy="7" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="15" cy="18" r="2"/><path d="m8 7 8-2m1 2-2 9M7 9l7 7"/>'); }
+function minusIcon() { return icon('<path d="M6 12h12"/>'); }
+function plusIcon() { return icon('<path d="M6 12h12M12 6v12"/>'); }
+function fitIcon() { return icon('<path d="M8 4H4v4M16 4h4v4M20 16v4h-4M8 20H4v-4"/>'); }
