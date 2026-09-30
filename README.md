@@ -6,7 +6,7 @@ The project also includes a small Node backend for optional account sync and Ope
 
 ## What You Get
 
-- Clean reader view for technical articles and long-form pages.
+- A distraction-free reading experience for technical articles and long-form content.
 - Highlights and margin notes anchored to selected text.
 - Local annotation and drawing persistence through browser storage.
 - Optional account login with file-backed note sync.
